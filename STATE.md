@@ -52,6 +52,10 @@ risk`
   added), dark theme, API client (problem+json -> ApiError, 401 -> /login), Login/Register,
   protected Overview, RiskBadge, scope footer. `npm run build` green. Verified manually in browser
   through the Vite proxy (/api -> 127.0.0.1:8010). No frontend tests yet.
+  - Stage 8b: AppLayout nav, shared ExperimentsTable (status/provenance badges, conditional 2 s polling),
+  History (filter, cancel/rerun/delete with ConfirmDialog), Audit log, field-level login errors,
+  vitest (6 tests). react-router-dom upgraded to v7; `npm audit --omit=dev` = 0 vulnerabilities.
+  Live behaviour verified manually in browser (list, filter, rerun, delete dialog, audit rows).
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
   app.state.{settings, engine, session_factory, login_limiter, dummy_hash, runner}
@@ -96,7 +100,7 @@ risk`
   Ctrl+C it there (or find it with Get-NetTCPConnection -LocalPort 8010).
    - Frontend dev: `cd frontend; npm run dev` (http://127.0.0.1:5173, proxies /api to 8010; backend must be running)
 - Frontend build: `npm run build`
-
+Frontend tests: cd frontend; npm run test
 ## Notes
 - Tables via create_all; Alembic added before Stage 10.
 - Starlette warns httpx is deprecated for TestClient (httpx2); harmless, still ignored.
@@ -140,4 +144,4 @@ risk`
 ## Known issues
    - None.
 ## Next
-- Stage 8b: nav bar, real Overview list, History (filter, rerun/cancel/delete), Audit log, field-level validation errors.
+-Stage 8c: New Experiment wizard (6 steps) + Quickstart demo.
