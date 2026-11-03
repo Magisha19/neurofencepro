@@ -23,11 +23,13 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.schemas import (
+    BehaviourResultsResponse,
     ExperimentConfig,
     ExperimentCreate,
     ExperimentList,
     ExperimentOut,
     ExperimentStatus,
+    FuzzingResultsResponse,
     Provenance,
     Stage,
 )
@@ -137,6 +139,65 @@ def get_experiment(
     db: Session = Depends(get_db),
 ) -> ExperimentOut:
     return to_out(_get_owned(db, user, experiment_id))
+
+
+@router.get("/{experiment_id}/behaviour", response_model=BehaviourResultsResponse)
+def get_behaviour_results(
+    experiment_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> BehaviourResultsResponse:
+    _get_owned(db, user, experiment_id)
+    rows = db.scalars(
+        select(BehaviourResult)
+        .where(BehaviourResult.experiment_id == experiment_id)
+        .order_by(BehaviourResult.seed)
+    ).all()
+    return BehaviourResultsResponse(
+        experiment_id=experiment_id,
+        provenance=Provenance.SIMULATED,
+        items=[
+            {
+                "seed": row.seed,
+                "n_eval": row.n_eval,
+                "n_non_target": row.n_non_target,
+                "n_attack_success": row.n_attack_success,
+                "n_label_flipped": row.n_label_flipped,
+                "clean_accuracy": row.clean_accuracy,
+                "attack_success_rate": row.attack_success_rate,
+                "label_flip_rate": row.label_flip_rate,
+            }
+            for row in rows
+        ],
+    )
+
+
+@router.get("/{experiment_id}/fuzzing", response_model=FuzzingResultsResponse)
+def get_fuzzing_results(
+    experiment_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FuzzingResultsResponse:
+    _get_owned(db, user, experiment_id)
+    rows = db.scalars(
+        select(FuzzingResult)
+        .where(FuzzingResult.experiment_id == experiment_id)
+        .order_by(FuzzingResult.seed, FuzzingResult.strategy)
+    ).all()
+    return FuzzingResultsResponse(
+        experiment_id=experiment_id,
+        provenance=Provenance.SIMULATED,
+        items=[
+            {
+                "seed": row.seed,
+                "strategy": row.strategy,
+                "n_samples": row.n_samples,
+                "n_flipped": row.n_flipped,
+                "flip_rate": row.flip_rate,
+            }
+            for row in rows
+        ],
+    )
 
 
 @router.post("/{experiment_id}/cancel", response_model=ExperimentOut)

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Experiment, ExperimentEvent
+from app.db.models import BehaviourResult, Experiment, ExperimentEvent, FuzzingResult
 from app.main import create_app
 from app.schemas import ExperimentConfig, Stage
 from app.services.runner import (
@@ -89,7 +89,45 @@ def test_experiment_pipeline_completes(client, app):
     assert progress == sorted(progress) and progress[-1] == 100
     assert "[stub" not in events[0].message
     behaviour_start = 2 * PIPELINE.index(Stage.BEHAVIOUR)
-    assert "stub" in events[behaviour_start].message
+    assert "[stub" not in events[behaviour_start].message
+    fuzzing_start = 2 * PIPELINE.index(Stage.FUZZING)
+    assert "[stub" not in events[fuzzing_start].message
+
+    behaviour_response = client.get(
+        f"{BASE}/{experiment_id}/behaviour", headers=headers
+    )
+    fuzzing_response = client.get(
+        f"{BASE}/{experiment_id}/fuzzing", headers=headers
+    )
+    assert behaviour_response.status_code == fuzzing_response.status_code == 200
+    behaviour = behaviour_response.json()
+    fuzzing = fuzzing_response.json()
+    assert behaviour["experiment_id"] == fuzzing["experiment_id"] == experiment_id
+    assert behaviour["provenance"] == fuzzing["provenance"] == "SIMULATED"
+    assert len(behaviour["items"]) == 5
+    assert len(fuzzing["items"]) == 5 * len(ExperimentConfig().strategies)
+    for result in behaviour["items"]:
+        assert result["n_eval"] == 400
+        assert result["n_non_target"] == 200
+        assert 0 <= result["n_attack_success"] <= result["n_non_target"]
+        assert 0 <= result["n_label_flipped"] <= result["n_eval"]
+        assert result["attack_success_rate"] == pytest.approx(
+            result["n_attack_success"] / result["n_non_target"]
+        )
+        assert result["label_flip_rate"] == pytest.approx(
+            result["n_label_flipped"] / result["n_eval"]
+        )
+    assert all(result["n_samples"] == 50 for result in fuzzing["items"])
+
+    _, other_headers = make_user(client, "bob0001")
+    assert (
+        client.get(f"{BASE}/{experiment_id}/behaviour", headers=other_headers).status_code
+        == 404
+    )
+    assert (
+        client.get(f"{BASE}/{experiment_id}/fuzzing", headers=other_headers).status_code
+        == 404
+    )
 
 
 @pytest.mark.parametrize(("target_label", "trigger_token"), [
@@ -158,6 +196,109 @@ def test_dataset_generation_stops_between_seeds_when_cancelled(app):
     STAGE_FUNCS[Stage.DATASET](context)
 
     assert list(artifacts["datasets"]) == [1]
+
+
+def test_behaviour_and_fuzzing_retries_replace_rows(client, app):
+    user_id, headers = make_user(client, "alice01")
+    experiment_id = new_experiment(client, headers)
+    with app.state.session_factory() as session:
+        experiment = session.get(Experiment, experiment_id)
+        config = ExperimentConfig.model_validate(experiment.config_json).model_dump(mode="json")
+        config.update(
+            seeds=[3],
+            n_train=240,
+            n_test=120,
+            strategies=["homoglyph", "synonym_swap"],
+            fuzz_samples_per_strategy=10,
+        )
+        experiment.status = "running"
+        session.commit()
+
+    context = StageContext(app.state.session_factory, experiment_id, user_id, config)
+    for stage in (
+        Stage.DATASET,
+        Stage.TRAIN_CLEAN,
+        Stage.PLANT_BACKDOOR,
+        Stage.BEHAVIOUR,
+        Stage.FUZZING,
+    ):
+        STAGE_FUNCS[stage](context)
+    first_behaviour = list(context.artifacts["behaviour_results"])
+    first_fuzzing = list(context.artifacts["fuzzing_results"])
+
+    STAGE_FUNCS[Stage.BEHAVIOUR](context)
+    STAGE_FUNCS[Stage.FUZZING](context)
+
+    with app.state.session_factory() as session:
+        behaviour_rows = session.scalars(
+            select(BehaviourResult).where(
+                BehaviourResult.experiment_id == experiment_id
+            )
+        ).all()
+        fuzzing_rows = session.scalars(
+            select(FuzzingResult).where(FuzzingResult.experiment_id == experiment_id)
+        ).all()
+    assert len(behaviour_rows) == len(first_behaviour) == 1
+    assert len(fuzzing_rows) == len(first_fuzzing) == 2
+    assert behaviour_rows[0].n_attack_success == first_behaviour[0]["n_attack_success"]
+    assert {
+        row.strategy: row.n_flipped for row in fuzzing_rows
+    } == {
+        result["strategy"]: result["n_flipped"] for result in first_fuzzing
+    }
+
+
+@pytest.mark.parametrize(
+    ("stage", "checks_before_cancel"),
+    [(Stage.BEHAVIOUR, 2), (Stage.FUZZING, 3)],
+)
+def test_analysis_stages_do_not_persist_partial_results_when_cancelled(
+    client, app, stage, checks_before_cancel
+):
+    user_id, headers = make_user(client, "alice01")
+    experiment_id = new_experiment(client, headers)
+    with app.state.session_factory() as session:
+        experiment = session.get(Experiment, experiment_id)
+        config = ExperimentConfig.model_validate(experiment.config_json).model_dump(mode="json")
+        config.update(
+            seeds=[3, 4],
+            n_train=240,
+            n_test=120,
+            strategies=["homoglyph", "synonym_swap"],
+            fuzz_samples_per_strategy=10,
+        )
+        experiment.status = "running"
+        session.commit()
+
+    context = StageContext(app.state.session_factory, experiment_id, user_id, config)
+    for setup_stage in (Stage.DATASET, Stage.TRAIN_CLEAN, Stage.PLANT_BACKDOOR):
+        STAGE_FUNCS[setup_stage](context)
+    cancellation_checks = 0
+
+    def cancelled_after_one_unit():
+        nonlocal cancellation_checks
+        cancellation_checks += 1
+        return cancellation_checks >= checks_before_cancel
+
+    analysis_context = StageContext(
+        app.state.session_factory,
+        experiment_id,
+        user_id,
+        config,
+        artifacts=context.artifacts,
+        is_cancelled=cancelled_after_one_unit,
+    )
+    STAGE_FUNCS[stage](analysis_context)
+
+    with app.state.session_factory() as session:
+        assert session.scalars(
+            select(BehaviourResult).where(
+                BehaviourResult.experiment_id == experiment_id
+            )
+        ).all() == []
+        assert session.scalars(
+            select(FuzzingResult).where(FuzzingResult.experiment_id == experiment_id)
+        ).all() == []
 
 
 def test_second_run_is_a_noop(client, app):

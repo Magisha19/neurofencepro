@@ -20,6 +20,8 @@ The risk score is labelled "Risk indicators observed in this experiment". No end
 | GET | /experiments | yes | ?limit&offset | ExperimentList |
 | GET | /experiments/{id} | yes | - | ExperimentOut |
 | GET | /experiments/{id}/events | yes | - | SSE stream of ExperimentEvent |
+| GET | /experiments/{id}/behaviour | yes | - | BehaviourResultsResponse |
+| GET | /experiments/{id}/fuzzing | yes | - | FuzzingResultsResponse |
 | GET | /experiments/{id}/metrics | yes | - | MetricsResponse |
 | GET | /experiments/{id}/risk | yes | - | RiskResponse |
 | POST | /experiments/{id}/cancel | yes | - | ExperimentOut |
@@ -51,6 +53,13 @@ Another user's resource returns **404**, never 403.
 
 Compute budget: `seeds * (n_train + n_test + strategies * fuzz_samples) <= 120000`.
 Unknown fields are rejected. Fuzzing runs only against NeuroFence's own toy model.
+
+Behavior results evaluate the poisoned toy model on the clean test set and on test samples
+with the configured trigger. Attack success rate is measured over non-target labels;
+label-flip rate counts predictions changed by adding the trigger. Fuzzing flip rate counts
+predictions changed by each deterministic mutation, compared with the same model's prediction
+on the original text. Result endpoints include scope and provenance and return 404 for another
+user's experiment.
 
 ## Metrics rules
 

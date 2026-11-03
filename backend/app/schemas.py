@@ -302,6 +302,11 @@ class BehaviourSummary(StrictModel):
     label_flip_rate: MetricSummary
 
 
+class BehaviourResultsResponse(HonestResult):
+    experiment_id: int
+    items: list[BehaviourSeedResult]
+
+
 class FuzzingSeedResult(StrictModel):
     seed: int
     strategy: MutationStrategy
@@ -319,6 +324,11 @@ class FuzzingSeedResult(StrictModel):
 class FuzzingSummary(StrictModel):
     strategy: MutationStrategy
     flip_rate: MetricSummary
+
+
+class FuzzingResultsResponse(HonestResult):
+    experiment_id: int
+    items: list[FuzzingSeedResult]
 
 
 class FuzzExample(StrictModel):

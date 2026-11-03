@@ -1,6 +1,7 @@
 """Background experiment runner.
 
-6a/6b: deterministic toy sentiment data and two toy classifiers; later stages remain stubs.
+6a-6c: deterministic toy sentiment data, toy classifiers, behavior and fuzzing results;
+later stages remain stubs.
 Every status write is conditional on status == 'running', so a cancel or delete that
 happens meanwhile is never overwritten. Error messages never contain exception text.
 """
@@ -19,12 +20,13 @@ from typing import Any
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import accuracy_score
 from sklearn.neural_network import MLPClassifier
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Experiment, ExperimentEvent
-from app.schemas import ExperimentStatus, Stage
+from app.core.mutations import mutate
+from app.db.models import BehaviourResult, Experiment, ExperimentEvent, FuzzingResult
+from app.schemas import ExperimentStatus, MutationStrategy, Stage
 
 log = logging.getLogger(__name__)
 
@@ -219,6 +221,159 @@ def _plant_backdoors(ctx: StageContext) -> None:
         }
 
 
+def _persist_behaviour_results(
+    ctx: StageContext, results: list[dict[str, float | int | None]]
+) -> None:
+    with ctx.session_factory() as db:
+        if _status(db, ctx.experiment_id) != RUNNING or ctx.is_cancelled():
+            return
+        db.execute(
+            delete(BehaviourResult).where(
+                BehaviourResult.experiment_id == ctx.experiment_id
+            )
+        )
+        db.add_all(
+            BehaviourResult(
+                user_id=ctx.user_id,
+                experiment_id=ctx.experiment_id,
+                seed=result["seed"],
+                n_eval=result["n_eval"],
+                n_non_target=result["n_non_target"],
+                n_attack_success=result["n_attack_success"],
+                n_label_flipped=result["n_label_flipped"],
+                clean_accuracy=result["clean_accuracy"],
+                attack_success_rate=result["attack_success_rate"],
+                label_flip_rate=result["label_flip_rate"],
+            )
+            for result in results
+        )
+        db.commit()
+
+
+def _run_behaviour(ctx: StageContext) -> None:
+    datasets: dict[int, SeedDataset] = ctx.artifacts["datasets"]
+    models: dict[int, MLPClassifier] = ctx.artifacts["poisoned_models"]
+    vectorizers: dict[int, CountVectorizer] = ctx.artifacts["vectorizers"]
+    target_label = ctx.config["target_label"]
+    trigger = ctx.config["trigger_token"]
+    results: list[dict[str, float | int | None]] = []
+
+    for seed, dataset in datasets.items():
+        if ctx.is_cancelled():
+            return
+        model = models[seed]
+        vectorizer = vectorizers[seed]
+        clean_matrix = vectorizer.transform(dataset.test_texts)
+        clean_predictions = model.predict(clean_matrix)
+        clean_accuracy = float(accuracy_score(dataset.test_labels, clean_predictions))
+
+        triggered_texts = [f"{text} {trigger}" for text in dataset.test_texts]
+        triggered_predictions = model.predict(vectorizer.transform(triggered_texts))
+        non_target_indices = [
+            index for index, label in enumerate(dataset.test_labels) if label != target_label
+        ]
+        n_attack_success = int(
+            sum(triggered_predictions[index] == target_label for index in non_target_indices)
+        )
+        n_label_flipped = int(sum(
+            clean != triggered
+            for clean, triggered in zip(clean_predictions, triggered_predictions)
+        ))
+        n_non_target = len(non_target_indices)
+        n_eval = len(dataset.test_labels)
+        results.append(
+            {
+                "seed": seed,
+                "n_eval": n_eval,
+                "n_non_target": n_non_target,
+                "n_attack_success": n_attack_success,
+                "n_label_flipped": n_label_flipped,
+                "clean_accuracy": clean_accuracy,
+                "attack_success_rate": (
+                    n_attack_success / n_non_target if n_non_target else None
+                ),
+                "label_flip_rate": n_label_flipped / n_eval if n_eval else None,
+            }
+        )
+
+    if ctx.is_cancelled():
+        return
+    _persist_behaviour_results(ctx, results)
+    ctx.artifacts["behaviour_results"] = results
+
+
+def _persist_fuzzing_results(
+    ctx: StageContext, results: list[dict[str, float | int | str]]
+) -> None:
+    with ctx.session_factory() as db:
+        if _status(db, ctx.experiment_id) != RUNNING or ctx.is_cancelled():
+            return
+        db.execute(
+            delete(FuzzingResult).where(
+                FuzzingResult.experiment_id == ctx.experiment_id
+            )
+        )
+        db.add_all(
+            FuzzingResult(
+                user_id=ctx.user_id,
+                experiment_id=ctx.experiment_id,
+                seed=result["seed"],
+                strategy=result["strategy"],
+                n_samples=result["n_samples"],
+                n_flipped=result["n_flipped"],
+                flip_rate=result["flip_rate"],
+            )
+            for result in results
+        )
+        db.commit()
+
+
+def _run_fuzzing(ctx: StageContext) -> None:
+    datasets: dict[int, SeedDataset] = ctx.artifacts["datasets"]
+    models: dict[int, MLPClassifier] = ctx.artifacts["poisoned_models"]
+    vectorizers: dict[int, CountVectorizer] = ctx.artifacts["vectorizers"]
+    samples_per_strategy = ctx.config["fuzz_samples_per_strategy"]
+    results: list[dict[str, float | int | str]] = []
+
+    for seed, dataset in datasets.items():
+        if ctx.is_cancelled():
+            return
+        model = models[seed]
+        vectorizer = vectorizers[seed]
+        test_size = len(dataset.test_texts)
+        for strategy in ctx.config["strategies"]:
+            if ctx.is_cancelled():
+                return
+            strategy = MutationStrategy(strategy)
+            rng = random.Random(f"neurofence:fuzz-sample:{seed}:{strategy.value}")
+            indices = [rng.randrange(test_size) for _ in range(samples_per_strategy)]
+            original_texts = [dataset.test_texts[index] for index in indices]
+            mutated_texts = [
+                mutate(text, strategy, seed, index)
+                for index, text in enumerate(original_texts)
+            ]
+            original_predictions = model.predict(vectorizer.transform(original_texts))
+            mutated_predictions = model.predict(vectorizer.transform(mutated_texts))
+            n_flipped = int(sum(
+                original != mutated
+                for original, mutated in zip(original_predictions, mutated_predictions)
+            ))
+            results.append(
+                {
+                    "seed": seed,
+                    "strategy": strategy.value,
+                    "n_samples": samples_per_strategy,
+                    "n_flipped": n_flipped,
+                    "flip_rate": n_flipped / samples_per_strategy,
+                }
+            )
+
+    if ctx.is_cancelled():
+        return
+    _persist_fuzzing_results(ctx, results)
+    ctx.artifacts["fuzzing_results"] = results
+
+
 StageFn = Callable[[StageContext], None]
 
 
@@ -235,6 +390,8 @@ STAGE_FUNCS.update(
         Stage.DATASET: _generate_datasets,
         Stage.TRAIN_CLEAN: _train_clean_models,
         Stage.PLANT_BACKDOOR: _plant_backdoors,
+        Stage.BEHAVIOUR: _run_behaviour,
+        Stage.FUZZING: _run_fuzzing,
     }
 )
 

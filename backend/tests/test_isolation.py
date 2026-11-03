@@ -1,8 +1,9 @@
 import re
 
-from app.db.models import AuditLog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from app.db.models import AuditLog
 
 PW = "correct-horse-battery"
 PUBLIC = {
@@ -74,4 +75,4 @@ def test_every_protected_route_requires_a_token(app, client):
             r = client.request(method.upper(), concrete)
             assert r.status_code == 401, f"{method.upper()} {path} is not protected"
             checked += 1
-    assert checked >= 8  # audit + 7 experiment endpoints; raise as routers are added
+    assert checked >= 10  # audit + 9 experiment endpoints; raise as routes are added

@@ -31,6 +31,10 @@
   target labels, deterministic generation, trigger isolation, poisoning, and cancellation between
   seeds. Full suite: 157 passed. Live default config (5 seeds, 1000 train, 400 test) completed
   in 0.336 seconds (server started_at to finished_at).
+- Stage 6c: per-seed behavior and deterministic fuzzing results persisted idempotently and
+  exposed by authenticated behavior/fuzzing routes. Focused runner/isolation tests: 26 passed;
+  full suite: 160 passed. Isolated live-server check: completed run returned 5 behavior and 35
+  fuzzing records; 50 samples per fuzz strategy.
 
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
@@ -52,12 +56,13 @@
 - Routes: POST /api/v1/auth/register, POST /api/v1/auth/login, GET /api/v1/audit,
   POST|GET /api/v1/experiments, GET|DELETE /api/v1/experiments/{id},
   POST /api/v1/experiments/{id}/cancel, POST /api/v1/experiments/{id}/rerun,
-  GET /api/v1/experiments/{id}/events (SSE)
+  GET /api/v1/experiments/{id}/events (SSE), GET /api/v1/experiments/{id}/behaviour,
+  GET /api/v1/experiments/{id}/fuzzing
 - services.runner: run_experiment, recover_interrupted, ExperimentRunner, STAGE_FUNCS, PIPELINE
 - tests/conftest.py fixtures: settings, app, client (temp SQLite per test)
 
 ## Working commands (D:\neurofencepro\backend, venv active)
-- Tests: `python -m pytest -q`  -> 152 passed
+- Tests: `python -m pytest -q`  -> 160 passed
 - Unused imports: `python -m ruff check --select F401 app tests` -> all checks passed
 - Server: `python -m uvicorn app.main:create_app --factory --port 8010`
   (port 8000 gave WinError 10013 on this machine; use 8010)
@@ -72,7 +77,7 @@
   per-endpoint APIRoute entries. test_every_protected_route_requires_a_token reads paths from
   app.openapi()["paths"] instead. Routes with include_in_schema=False are NOT covered: do not
   use that flag on protected endpoints, or test them separately.
-- test_every_protected_route_requires_a_token now requires >= 8 operations; raise the number as
+- test_every_protected_route_requires_a_token now requires >= 10 operations; raise the number as
   protected routes are added.
 - Dev DB contains demo_user (id 1) from the real-server demo; registering it again gives 409.
   Delete data/neurofence.db to reset.
@@ -86,20 +91,21 @@
 - Runner: in-process thread pool. Tests set runner_enabled=False in conftest and call
   run_experiment() directly; a separate lifecycle test enables auto-submit. Real stages replace
   STAGE_FUNCS entries.
-- Stage 6b dataset, models, and per-seed metrics live only in StageContext.artifacts; they are not
-  persisted or exposed through an API yet. Remaining behavior, fuzzing, feature, detector, and
-  scoring stages are stubs.
+- Stage 6b dataset and models live only in StageContext.artifacts. Clean-model baseline ASR is
+  computed there but not persisted; behavior and fuzzing results are stored and exposed by API.
+- Feature extraction, detectors, and scoring remain stubs; completed runs do not yet include
+  those analyses.
 - Runner status writes are conditional on status == 'running', so cancel/delete are not overwritten.
-- completed currently means the stub stages ran; no metrics or risk results exist yet (Stages 6b-6d).
+- completed means the available toy data/model/behavior/fuzz stages ran; feature extraction,
+  detectors, and risk scoring still produce no results (Stage 6d).
 - SSE polls the database every 0.5 seconds; use Last-Event-ID to resume a stream.
 - Delete removes child rows explicitly (events, metrics, behaviour, fuzzing, risk, reports) so it
   does not depend on SQLite's foreign-key pragma. Audit rows outlive the deleted experiment.
-- test_every_protected_route_requires_a_token now requires >= 8 operations; raise the number as
+- test_every_protected_route_requires_a_token now requires >= 10 operations; raise the number as
   protected routes are added.
 - Dev DB has demo_user plus 2 demo experiments (queued/cancelled) from the Stage 5 demo.
 
 ## Known issues
    - None.
 ## Next
-- Stage 6c: persist and expose behavioral results (including the clean-model baseline ASR), then
-  implement the remaining real pipeline stages.
+- Stage 6d: implement toy-model hidden features, detectors, risk scores, and the unified metrics API.

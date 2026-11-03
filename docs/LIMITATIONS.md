@@ -16,7 +16,9 @@
 - Cancel is cooperative: computational stages check between seeds, then the current run stops.
 - Dataset generation, clean training, and backdoor planting use deterministic synthetic sentiment
   text and 16-unit toy MLP classifiers only; the data and trained models stay in memory.
-- Clean accuracy, clean-model baseline ASR, and poisoned-model ASR are computed per seed but are
-  not yet persisted or exposed through an API. Behavior, fuzzing, feature, detector, and scoring
-  stages remain stubs, so a completed experiment does not yet indicate that those analyses ran.
+- Behavior and mutation-fuzzing results are persisted per seed; `GET /experiments/{id}/behaviour`
+  and `GET /experiments/{id}/fuzzing` expose those toy-model results. Clean-model baseline ASR
+  remains an in-memory artifact and is not included in the persisted behavior response.
+- Feature extraction, detectors, and scoring remain stubs, so completed experiments do not yet
+  include those analyses.
 - The event stream polls the database (0.5 s); it is not a push channel.
