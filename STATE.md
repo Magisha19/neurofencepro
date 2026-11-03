@@ -11,35 +11,26 @@
 
 ## Done
 - Stage 0: folder scaffold, .gitignore, backend venv, git repo (origin/main)
-- Stage 1: backend/app/schemas.py, backend/tests/test_schemas.py, docs/api.md
-  (36 tests passed, real output pasted)
+- Stage 1: backend/app/schemas.py, backend/tests/test_schemas.py, docs/api.md (36 passed)
+- Stage 2: backend/app/core/mutations.py, backend/tests/test_mutations.py
+  (47 passed; full suite 83 passed, real output pasted)
 
-## Interfaces (schemas.py)
-- Constants: SCOPE_STATEMENT, RISK_SCORE_LABEL, SCORE_WEIGHTS, MAX_COMPUTE_UNITS=120000
-- Enums: Provenance, MutationStrategy, DetectorName, ExperimentStatus, Stage, RiskBand, ReportFormat
-- band_for_score(score) -> RiskBand
-- ExperimentConfig (+ .compute_units, .config_hash()), ExperimentCreate = ExperimentConfig
-- Metrics: ConfusionCounts, ClassificationMetrics, MetricSummary, DetectorSeedResult,
-  DetectorSummary, BehaviourSeedResult, BehaviourSummary, FuzzingSeedResult,
-  FuzzingSummary, FuzzExample, MetricsResponse
-- Risk: ScoreComponent, RiskScore, RiskResponse
-- Experiments: ExperimentOut, ExperimentList, ExperimentEvent
-- Auth: RegisterRequest, LoginRequest, TokenResponse, UserPublic
-- Others: ReportOut, AuditLogOut, AuditLogList, HealthResponse, LimitationsResponse,
-  ProblemDetail, ProblemFieldError
-- Rules enforced: scope statement fixed, ratio null iff denominator zero,
-  std = sample std (ddof=1), TRANSFORMER_HIDDEN not selectable yet
+## Interfaces (core/mutations.py)
+- mutate(text, strategy, seed, index=0) -> str   (pure, deterministic; ValueError/TypeError on bad input)
+- make_rng(strategy, seed, index) -> random.Random(f"neurofence:{strategy}:{seed}:{index}")
+- display_hidden(text) -> str   (invisible chars shown as <U+XXXX>)
+- make_fuzz_example(text, strategy, seed, index=0) -> FuzzExample
+- Tables: HOMOGLYPHS, LEET, ZERO_WIDTH_CHARS, SYNONYMS (24 words), INJECTIONS (4 harmless markers)
+- MAX_TEXT_LEN = 2000
 
-## Working commands (run in D:\neurofencepro\backend with venv active)
-- Activate: `.\.venv\Scripts\Activate.ps1`
-- Tests: `python -m pytest -v`
-- Import check: `python -c "from app.schemas import ExperimentConfig; c=ExperimentConfig(); print(c.compute_units, c.config_hash()[:12])"`
-  -> `8750 b1e0aed4e0e3`
+## Working commands (run in D:\neurofencepro\backend, venv active)
+- All tests: `python -m pytest -q`  -> 83 passed
+- Commit/push only from D:\neurofencepro (root)
 
 ## Notes
-- Existing README.md (15 bytes) will be rewritten in Stage 10.
-- Default seeds [0,1,2,3,4]; at least 1 mutation strategy required.
+- Stage 5 dataset vocabulary must overlap SYNONYMS keys, otherwise synonym_swap changes nothing.
+- instruction_injection uses harmless synthetic markers only (fuzzing targets our own toy model).
+- Lesson: check the prompt shows D:\neurofencepro\backend> before creating files; verify file Length after paste.
 
 ## Next
-- Stage 2: core/mutations.py (7 strategies, pure, seedable via
-  random.Random(f"neurofence:{strategy}:{seed}:{index}")) + tests/test_mutations.py
+- Stage 3: auth contract, config.py, DB models, main.py, GET /api/v1/health
