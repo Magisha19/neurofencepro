@@ -58,6 +58,8 @@ risk`
   Live behaviour verified manually in browser (list, filter, rerun, delete dialog, audit rows).
   - Stage 8c: New Experiment wizard (6 steps, per-step validation, compute-unit guard), Quickstart demo
   on Overview, overview footer layout fix. Vitest 16 passed, build green. Live behaviour verified manually.
+    - Stage 8d: Live Run page (SSE, replay) and Results page; vitest 27 passed, build green.
+  - Methodology page (renders /meta/limitations and score weights from the API), footer link.
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
   app.state.{settings, engine, session_factory, login_limiter, dummy_hash, runner}
@@ -150,4 +152,6 @@ Frontend tests: cd frontend; npm run test
   (lowercase vectorizer; injected words outside vocabulary). Fuzzing fragility measures vocabulary
   erosion, not general adversarial robustness. mutate() has no intensity parameter.
 ## Next
- Stage 8d: Live Run page (SSE) + Results page.
+  ## Next
+  - Live end-to-end check in the browser (see checklist), then reports (PDF/MD) and Stage 10 (Docker, Alembic).
+  

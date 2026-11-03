@@ -33,3 +33,9 @@
   bag-of-words vectorizer lowercases text and ignores out-of-vocabulary tokens.
 - Text inputs use a binary `CountVectorizer`, not TF-IDF.
 - The event stream polls the database (0.5 s); it is not a push channel.
+## Frontend
+- The access token is kept in sessionStorage: it is cleared when the tab closes and is not shared
+  between tabs, but JavaScript running on the same origin can read it. An XSS bug would expose it.
+  Tokens last 1 hour and cannot be revoked early.
+- A production deployment should serve the frontend with a Content-Security-Policy header
+  (planned for Stage 10). The API only sets nosniff, frame and referrer headers.
