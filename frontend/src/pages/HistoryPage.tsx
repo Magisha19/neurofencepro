@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { apiRequest, ApiError } from "../api/client";
 import { EXPERIMENTS_QUERY_KEY } from "../api/experiments";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -160,6 +160,12 @@ export function HistoryPage() {
           <ExperimentsTable
             actions={(experiment) => (
               <div className="row-action-buttons">
+                <Link
+                  className="table-action"
+                  to={`/experiments/${experiment.id}/live`}
+                >
+                  Live
+                </Link>
                 {(experiment.status === "queued" ||
                   experiment.status === "running") && (
                   <button

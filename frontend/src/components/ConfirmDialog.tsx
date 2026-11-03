@@ -4,6 +4,7 @@ interface ConfirmDialogProps {
   title: string;
   description: string;
   confirmLabel: string;
+  cancelLabel?: string;
   confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -13,6 +14,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  cancelLabel = "Keep experiment",
   confirmDisabled = false,
   onConfirm,
   onCancel,
@@ -65,7 +67,7 @@ export function ConfirmDialog({
         <p>{description}</p>
         <div className="dialog-actions">
           <button className="quiet-button" onClick={onCancel} type="button">
-            Keep experiment
+            {cancelLabel}
           </button>
           <button
             className="danger-button"

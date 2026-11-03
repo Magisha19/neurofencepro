@@ -1,0 +1,37 @@
+import { describe, expect, it } from "vitest";
+import { parseSseChunk } from "./sse";
+
+describe("parseSseChunk", () => {
+  it("keeps an incomplete event as a remainder", () => {
+    expect(
+      parseSseChunk('id: 7\nevent: experiment_event\ndata: {"seq":'),
+    ).toEqual({
+      events: [],
+      remainder: 'id: 7\nevent: experiment_event\ndata: {"seq":',
+    });
+  });
+
+  it("parses multiline data, id and event fields", () => {
+    expect(
+      parseSseChunk("id: 12\nevent: experiment_event\ndata: first\ndata: second\n\n"),
+    ).toEqual({
+      events: [
+        {
+          id: "12",
+          event: "experiment_event",
+          data: "first\nsecond",
+        },
+      ],
+      remainder: "",
+    });
+  });
+
+  it("ignores comment lines and leaves the next partial line buffered", () => {
+    expect(
+      parseSseChunk(": keepalive\nid: 3\ndata: value\n\nid: 4\ndata:"),
+    ).toEqual({
+      events: [{ id: "3", data: "value" }],
+      remainder: "id: 4\ndata:",
+    });
+  });
+});

@@ -4,6 +4,7 @@ import { useCreateExperiment } from "../hooks/useCreateExperiment";
 import { useExperiments } from "../hooks/useExperiments";
 import { defaultConfig } from "../utils/wizard";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 export function OverviewPage() {
   const experiments = useExperiments();
@@ -60,7 +61,8 @@ export function OverviewPage() {
       )}
       {successId !== null && (
         <p className="success-notice" role="status">
-          Quickstart experiment created: #{successId}
+          Quickstart experiment created: #{successId}{" "}
+          <Link to={`/experiments/${successId}/live`}>Open Live Run</Link>
         </p>
       )}
 

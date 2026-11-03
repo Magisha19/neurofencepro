@@ -5,8 +5,10 @@ import { ScopeFooter } from "./components/ScopeFooter";
 import { AuditPage } from "./pages/AuditPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { LoginPage } from "./pages/LoginPage";
+import { LiveRunPage } from "./pages/LiveRunPage";
 import { NewExperimentPage } from "./pages/NewExperimentPage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { ResultsPage } from "./pages/ResultsPage";
 
 export default function App() {
   return (
@@ -17,6 +19,8 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route path="/" element={<OverviewPage />} />
             <Route path="/experiments/new" element={<NewExperimentPage />} />
+            <Route path="/experiments/:id/live" element={<LiveRunPage />} />
+            <Route path="/experiments/:id" element={<ResultsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/audit" element={<AuditPage />} />
           </Route>

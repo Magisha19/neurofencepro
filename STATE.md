@@ -56,6 +56,8 @@ risk`
   History (filter, cancel/rerun/delete with ConfirmDialog), Audit log, field-level login errors,
   vitest (6 tests). react-router-dom upgraded to v7; `npm audit --omit=dev` = 0 vulnerabilities.
   Live behaviour verified manually in browser (list, filter, rerun, delete dialog, audit rows).
+  - Stage 8c: New Experiment wizard (6 steps, per-step validation, compute-unit guard), Quickstart demo
+  on Overview, overview footer layout fix. Vitest 16 passed, build green. Live behaviour verified manually.
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
   app.state.{settings, engine, session_factory, login_limiter, dummy_hash, runner}
@@ -144,4 +146,4 @@ Frontend tests: cd frontend; npm run test
 ## Known issues
    - None.
 ## Next
--Stage 8c: New Experiment wizard (6 steps) + Quickstart demo.
+ Stage 8d: Live Run page (SSE) + Results page.

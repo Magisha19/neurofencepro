@@ -20,6 +20,19 @@ export function getToken(): string | null {
   return memoryToken;
 }
 
+export function getAuthHeaders(headers?: HeadersInit): Headers {
+  const result = new Headers(headers);
+  if (memoryToken) result.set("Authorization", `Bearer ${memoryToken}`);
+  return result;
+}
+
+export function handleUnauthorized(): void {
+  setToken(null);
+  if (window.location.pathname !== "/login") {
+    window.location.assign("/login");
+  }
+}
+
 export function setToken(token: string | null): void {
   memoryToken = token;
   try {
@@ -86,20 +99,13 @@ export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const headers = new Headers(init.headers);
+  const headers = getAuthHeaders(init.headers);
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  if (memoryToken) {
-    headers.set("Authorization", `Bearer ${memoryToken}`);
-  }
-
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (response.status === 401) {
-    setToken(null);
-    if (window.location.pathname !== "/login") {
-      window.location.assign("/login");
-    }
+    handleUnauthorized();
   }
   if (!response.ok) {
     throw await problemFrom(response);

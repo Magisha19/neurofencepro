@@ -119,8 +119,7 @@ export function NewExperimentPage() {
 
     try {
       const created = await createExperiment.mutateAsync(submittedConfig);
-      // TODO: redirect to /experiments/:id when the Live Run page is available.
-      navigate("/history", {
+      navigate(`/experiments/${created.id}/live`, {
         state: { createdExperimentId: created.id },
       });
     } catch (error) {
