@@ -40,13 +40,18 @@
   - Stage 6d-2a: runner wires FEATURES (provenance TOY_MODEL_HIDDEN stored on experiment) and
   DETECTORS (Metric rows per detector x seed, idempotent, cancel-safe). Full suite: 178 passed.
   Live check (port 8010): experiment completed, 15 metric rows.
-- Stage 6d-2b: scoring stage persists validated risk scores; authenticated `/metrics` and `/risk`
+- Stage 6d-2b: scoring stage persists validated risk scores; authenticated `/metrics` and `/
+risk`
   endpoints expose persisted results. `feature_source` restricted to `TOY_MODEL_HIDDEN`.
   Full suite: 182 passed.
 - Stage 7: behavior/fuzzing results use `TOY_MODEL_HIDDEN` provenance; scoring explanations
   identify each measurement; public `/meta/limitations` describes fixed design constraints.
   Reproducibility and runner-enabled API smoke tests cover the end-to-end flows.
   Full suite: 185 passed.
+  - Stage 8a: frontend scaffold (Vite, React 18, TS strict, Tailwind, TanStack Query, react-router-dom v6
+  added), dark theme, API client (problem+json -> ApiError, 401 -> /login), Login/Register,
+  protected Overview, RiskBadge, scope footer. `npm run build` green. Verified manually in browser
+  through the Vite proxy (/api -> 127.0.0.1:8010). No frontend tests yet.
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
   app.state.{settings, engine, session_factory, login_limiter, dummy_hash, runner}
@@ -89,6 +94,8 @@
 - Health: `curl.exe http://127.0.0.1:8010/api/v1/health`
 - If port 8010 is busy, an old uvicorn is still running in another terminal.
   Ctrl+C it there (or find it with Get-NetTCPConnection -LocalPort 8010).
+   - Frontend dev: `cd frontend; npm run dev` (http://127.0.0.1:5173, proxies /api to 8010; backend must be running)
+- Frontend build: `npm run build`
 
 ## Notes
 - Tables via create_all; Alembic added before Stage 10.
@@ -133,4 +140,4 @@
 ## Known issues
    - None.
 ## Next
-- Stage 8a.
+- Stage 8b: nav bar, real Overview list, History (filter, rerun/cancel/delete), Audit log, field-level validation errors.
