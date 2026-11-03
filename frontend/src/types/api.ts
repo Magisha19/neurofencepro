@@ -85,6 +85,22 @@ export interface ExperimentList {
   offset: number;
 }
 
+export interface AuditLogOut {
+  id: number;
+  action: string;
+  resource_type: string | null;
+  resource_id: number | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditLogList {
+  items: AuditLogOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface ProblemFieldError {
   field: string;
   message: string;

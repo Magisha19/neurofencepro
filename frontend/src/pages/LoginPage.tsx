@@ -33,6 +33,15 @@ export function LoginPage() {
       : error instanceof Error
         ? error.message
         : null;
+  const fieldError = (field: "username" | "password") =>
+    error instanceof ApiError
+      ? error.errors?.find((item) =>
+          item.field.split(".").includes(field),
+        )?.message
+      : undefined;
+  const usernameError = fieldError("username");
+  const passwordError = fieldError("password");
+  const hasFieldErrors = Boolean(usernameError || passwordError);
 
   return (
     <main className="login-layout">
@@ -82,9 +91,16 @@ export function LoginPage() {
             id="username"
             name="username"
             required
+            aria-describedby={usernameError ? "username-error" : undefined}
+            aria-invalid={Boolean(usernameError)}
             value={username}
             onChange={(event) => setUsername(event.target.value)}
           />
+          {usernameError && (
+            <p className="field-error" id="username-error" role="alert">
+              {usernameError}
+            </p>
+          )}
 
           <label htmlFor="password">Password</label>
           <input
@@ -93,11 +109,27 @@ export function LoginPage() {
             name="password"
             required
             type="password"
+            aria-describedby={
+              [isRegistering ? "password-hint" : null, passwordError ? "password-error" : null]
+                .filter(Boolean)
+                .join(" ") || undefined
+            }
+            aria-invalid={Boolean(passwordError)}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
+          {isRegistering && (
+            <p className="field-hint" id="password-hint">
+              12 to 72 characters
+            </p>
+          )}
+          {passwordError && (
+            <p className="field-error" id="password-error" role="alert">
+              {passwordError}
+            </p>
+          )}
 
-          {errorMessage && (
+          {errorMessage && !hasFieldErrors && (
             <p className="form-error" role="alert">
               {errorMessage}
             </p>

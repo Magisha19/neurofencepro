@@ -45,13 +45,20 @@ export class ApiError extends Error {
   readonly status: number;
   readonly title: string;
   readonly detail: string;
+  readonly errors: ProblemDetail["errors"];
 
-  constructor(status: number, title: string, detail: string) {
+  constructor(
+    status: number,
+    title: string,
+    detail: string,
+    errors?: ProblemDetail["errors"],
+  ) {
     super(detail || title);
     this.name = "ApiError";
     this.status = status;
     this.title = title;
     this.detail = detail;
+    this.errors = errors;
   }
 }
 
@@ -59,18 +66,20 @@ async function problemFrom(response: Response): Promise<ApiError> {
   const fallbackTitle = response.statusText || "Request failed";
   let title = fallbackTitle;
   let detail = "The request could not be completed.";
+  let errors: ProblemDetail["errors"];
 
   if (response.headers.get("content-type")?.includes("application/problem+json")) {
     try {
       const body = (await response.json()) as ProblemDetail;
       title = typeof body.title === "string" ? body.title : fallbackTitle;
       detail = typeof body.detail === "string" ? body.detail : title;
+      errors = body.errors;
     } catch {
       detail = "The request returned an invalid problem response.";
     }
   }
 
-  return new ApiError(response.status, title, detail);
+  return new ApiError(response.status, title, detail, errors);
 }
 
 export async function apiRequest<T>(

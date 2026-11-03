@@ -1,30 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { apiRequest, ApiError } from "../api/client";
-import { useAuth } from "../hooks/useAuth";
-import type { ExperimentList } from "../types/api";
+import { ApiError } from "../api/client";
+import { ExperimentsTable } from "../components/ExperimentsTable";
+import { useExperiments } from "../hooks/useExperiments";
 
 export function OverviewPage() {
-  const { logout } = useAuth();
-  const experiments = useQuery({
-    queryKey: ["experiments"],
-    queryFn: () => apiRequest<ExperimentList>("/experiments"),
-  });
+  const experiments = useExperiments();
 
   return (
     <main className="page-layout">
-      <header className="topbar">
-        <Link aria-label="NeuroFence overview" className="brand-link" to="/">
-          <span className="brand-mark small" aria-hidden="true">
-            N
-          </span>
-          <span>NEUROFENCE</span>
-        </Link>
-        <button className="quiet-button" onClick={logout} type="button">
-          Sign out
-        </button>
-      </header>
-
       <section className="page-heading">
         <div>
           <p className="eyebrow">WORKSPACE / EXPERIMENTS</p>
@@ -33,10 +15,14 @@ export function OverviewPage() {
             Your experiment runs and their current execution state.
           </p>
         </div>
-        <span className="connection-pill">
-          <span className="status-dot" aria-hidden="true" />
-          API connected
-        </span>
+        <button
+          className="quiet-button refresh-button"
+          disabled={experiments.isFetching}
+          onClick={() => void experiments.refetch()}
+          type="button"
+        >
+          {experiments.isFetching ? "Refreshing…" : "Refresh"}
+        </button>
       </section>
 
       <section aria-labelledby="experiments-heading" className="panel table-panel">
@@ -72,59 +58,7 @@ export function OverviewPage() {
           </div>
         )}
         {experiments.data && experiments.data.items.length > 0 && (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Experiment</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Stage</th>
-                  <th scope="col">Progress</th>
-                  <th scope="col">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {experiments.data.items.map((experiment) => (
-                  <tr key={experiment.id}>
-                    <td>
-                      <span className="experiment-name">{experiment.name}</span>
-                      <span className="experiment-id">
-                        RUN-{String(experiment.id).padStart(4, "0")}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`status-tag status-${experiment.status}`}
-                      >
-                        {experiment.status}
-                      </span>
-                    </td>
-                    <td className="mono-cell">{experiment.stage}</td>
-                    <td>
-                      <div
-                        aria-label={`${experiment.progress}% complete`}
-                        className="progress-track"
-                        role="progressbar"
-                        aria-valuemax={100}
-                        aria-valuemin={0}
-                        aria-valuenow={experiment.progress}
-                      >
-                        <span
-                          style={{ width: `${experiment.progress}%` }}
-                        />
-                      </div>
-                      <span className="progress-label">
-                        {experiment.progress.toFixed(0)}%
-                      </span>
-                    </td>
-                    <td className="date-cell">
-                      {new Date(experiment.created_at).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ExperimentsTable experiments={experiments.data.items} />
         )}
       </section>
 
