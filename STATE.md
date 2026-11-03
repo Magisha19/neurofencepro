@@ -62,12 +62,11 @@
 - Failed login for an unknown username is audited with user_id NULL and the username is not
   logged. Register has no rate limit (login only).
 - Rate limiter is in-memory, single process (document in LIMITATIONS.md).
+   - All schema datetimes use UtcDateTime (schemas.py): naive values from SQLite are treated
+     as UTC and serialized with a "Z" suffix. Use UtcDateTime for every new *_at field.
 
 ## Known issues
-- Timestamp inconsistency: UserPublic.created_at serializes with "Z", AuditLogOut.created_at
-  without. JavaScript reads the latter as local time (about 5.5 h off in IST). Fix in
-  app/schemas.py before the frontend shows audit data.
-
+   - None.
 ## Next
 - Fix the timestamp issue (schemas.py).
 - Write LIMITATIONS.md: no register rate limit, in-memory single-process limiter, proxy/Docker
