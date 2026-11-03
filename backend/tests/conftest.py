@@ -8,7 +8,9 @@ from app.main import create_app
 @pytest.fixture()
 def settings(tmp_path):
     db_file = (tmp_path / "test.db").as_posix()
-    return Settings(_env_file=None, env="test", database_url=f"sqlite:///{db_file}")
+    return Settings(
+        _env_file=None, env="test", database_url=f"sqlite:///{db_file}", bcrypt_rounds=4
+    )
 
 
 @pytest.fixture()

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     jwt_secret: str = DEV_JWT_SECRET
     jwt_algorithm: Literal["HS256"] = "HS256"
     access_token_minutes: int = Field(60, ge=5, le=1440)
+    bcrypt_rounds: int = Field(12, ge=4, le=15)
 
     cors_origins: list[str] = ["http://localhost:5173"]
 

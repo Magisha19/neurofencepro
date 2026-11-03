@@ -12,7 +12,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api import audit as audit_api
+from app.api import auth as auth_api
 from app.api import health
+from app.auth.passwords import hash_password
+from app.auth.ratelimit import LoginRateLimiter
 from app.config import APP_VERSION, Settings, get_settings
 from app.db.models import Base
 from app.db.session import create_db_engine
@@ -92,6 +96,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    app.state.login_limiter = LoginRateLimiter(
+        settings.login_max_failures, settings.login_window_seconds
+    )
+    app.state.dummy_hash = hash_password("neurofence-dummy-password", settings.bcrypt_rounds)
 
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)
@@ -116,4 +124,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(health.router, prefix=API_PREFIX)
+    app.include_router(auth_api.router, prefix=API_PREFIX)
+    app.include_router(audit_api.router, prefix=API_PREFIX)
     return app
