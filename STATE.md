@@ -37,6 +37,9 @@
   fuzzing records; 50 samples per fuzz strategy.
 - Stage 6d-1: core/{metrics,features,detectors,scoring}.py (pure, no FastAPI) + tests
   (test_metrics golden, test_features, test_detectors, test_scoring). Full suite: 174 passed.
+  - Stage 6d-2a: runner wires FEATURES (provenance TOY_MODEL_HIDDEN stored on experiment) and
+  DETECTORS (Metric rows per detector x seed, idempotent, cancel-safe). Full suite: 178 passed.
+  Live check (port 8010): experiment completed, 15 metric rows.
 - Stage 6d-2b: scoring stage persists validated risk scores; authenticated `/metrics` and `/risk`
   endpoints expose persisted results. `feature_source` restricted to `TOY_MODEL_HIDDEN`.
   Full suite: 182 passed.
