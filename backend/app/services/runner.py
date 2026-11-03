@@ -1,7 +1,6 @@
 """Background experiment runner.
 
-6a-6c: deterministic toy sentiment data, toy classifiers, behavior and fuzzing results;
-later stages remain stubs.
+Stages 6a-6d: deterministic toy data and models, behavior, fuzzing, detectors, and risk scoring.
 Every status write is conditional on status == 'running', so a cancel or delete that
 happens meanwhile is never overwritten. Error messages never contain exception text.
 """
@@ -28,14 +27,23 @@ from app.core.detectors import run_detectors, vote_stats
 from app.core.features import PROVENANCE, extract_features
 from app.core.metrics import Counts, Metrics, compute_metrics, confusion_counts
 from app.core.mutations import mutate
+from app.core.scoring import score_risk
 from app.db.models import (
     BehaviourResult,
     Experiment,
     ExperimentEvent,
     FuzzingResult,
     Metric,
+    RiskScoreRecord,
 )
-from app.schemas import ExperimentStatus, MutationStrategy, Stage
+from app.schemas import (
+    SCORE_WEIGHTS,
+    ExperimentStatus,
+    MutationStrategy,
+    RiskScore,
+    ScoreComponent,
+    Stage,
+)
 
 log = logging.getLogger(__name__)
 
@@ -474,6 +482,97 @@ def _run_detectors_stage(ctx: StageContext) -> None:
     _persist_detector_results(ctx, rows)
 
 
+def _run_scoring(ctx: StageContext) -> None:
+    if ctx.is_cancelled():
+        return
+
+    behaviour_results: list[dict[str, float | int | None]] = ctx.artifacts[
+        "behaviour_results"
+    ]
+    detector_votes: dict[int, tuple[float, float]] = ctx.artifacts["detector_votes"]
+    fuzzing_results: list[dict[str, float | int | str]] = ctx.artifacts[
+        "fuzzing_results"
+    ]
+
+    attack_success_rates = [
+        result["attack_success_rate"] for result in behaviour_results
+    ]
+    consensus = [vote[0] for vote in detector_votes.values()]
+    disagreement = [vote[1] for vote in detector_votes.values()]
+    fuzz_flip_rates = [result["flip_rate"] for result in fuzzing_results]
+
+    result = score_risk(
+        attack_success_rates=attack_success_rates,
+        consensus=consensus,
+        fuzz_flip_rates=fuzz_flip_rates,
+        disagreement=disagreement,
+    )
+    component_inputs = {
+        "behavioural_divergence": attack_success_rates,
+        "detector_consensus": consensus,
+        "fuzzing_fragility": fuzz_flip_rates,
+        "detector_disagreement": disagreement,
+    }
+    components: list[dict[str, Any]] = []
+    for component in result.components:
+        values = component_inputs[component.name]
+        defined = [value for value in values if value is not None]
+        inputs = {
+            "mean": component.value,
+            "n_defined": float(len(defined)),
+            "n_total": float(len(values)),
+        }
+        if component.value is None:
+            explanation = (
+                "Input was undefined because no values were defined; points are 0.00. "
+                "This component weighting is a design choice."
+            )
+        else:
+            explanation = (
+                f"Mean input was {component.value:.4f}; weighted points are "
+                f"{component.points:.2f}. This component weighting is a design choice."
+            )
+        components.append(
+            ScoreComponent(
+                name=component.name,
+                points=component.points,
+                max_points=int(SCORE_WEIGHTS[component.name]),
+                explanation=explanation,
+                inputs=inputs,
+            ).model_dump(mode="json")
+        )
+
+    validated_score = RiskScore(
+        total=result.total,
+        band=result.band,
+        components=components,
+    )
+
+    with ctx.session_factory() as db:
+        if _status(db, ctx.experiment_id) != RUNNING or ctx.is_cancelled():
+            return
+        db.execute(
+            delete(RiskScoreRecord).where(
+                RiskScoreRecord.experiment_id == ctx.experiment_id
+            )
+        )
+        db.add(
+            RiskScoreRecord(
+                user_id=ctx.user_id,
+                experiment_id=ctx.experiment_id,
+                total=validated_score.total,
+                band=validated_score.band.value,
+                components=[
+                    component.model_dump(mode="json")
+                    for component in validated_score.components
+                ],
+                weights=SCORE_WEIGHTS,
+                provenance=PROVENANCE,
+            )
+        )
+        db.commit()
+
+
 def _stub_stage(ctx: StageContext) -> None:
     if ctx.stub_delay:
         time.sleep(ctx.stub_delay)
@@ -491,6 +590,7 @@ STAGE_FUNCS.update(
         Stage.FUZZING: _run_fuzzing,
         Stage.FEATURES: _extract_features,
         Stage.DETECTORS: _run_detectors_stage,
+        Stage.SCORING: _run_scoring,
     }
 )
 

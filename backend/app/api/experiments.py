@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.deps import client_ip, get_current_user
+from app.core.metrics import summarize
 from app.db.models import (
     BehaviourResult,
     Experiment,
@@ -24,13 +25,26 @@ from app.db.models import (
 from app.db.session import get_db
 from app.schemas import (
     BehaviourResultsResponse,
+    BehaviourSeedResult,
+    BehaviourSummary,
+    ClassificationMetrics,
+    ConfusionCounts,
+    DetectorSeedResult,
+    DetectorSummary,
     ExperimentConfig,
     ExperimentCreate,
     ExperimentList,
     ExperimentOut,
     ExperimentStatus,
     FuzzingResultsResponse,
+    FuzzingSeedResult,
+    FuzzingSummary,
+    MetricsResponse,
+    MetricSummary,
     Provenance,
+    RiskBand,
+    RiskResponse,
+    RiskScore,
     Stage,
 )
 from app.schemas import (
@@ -85,6 +99,16 @@ def _get_owned(db: Session, user: User, experiment_id: int) -> Experiment:
     if exp is None:  # missing and "not yours" are indistinguishable on purpose
         raise HTTPException(status_code=404, detail="Experiment not found")
     return exp
+
+
+def _metric_summary(values: list[float | None], n_total: int) -> MetricSummary:
+    summary = summarize(values)
+    return MetricSummary(
+        mean=summary.mean,
+        std=summary.std,
+        n_defined=summary.n_defined,
+        n_total=n_total,
+    )
 
 
 def _submit(request: Request, experiment_id: int) -> None:
@@ -197,6 +221,197 @@ def get_fuzzing_results(
             }
             for row in rows
         ],
+    )
+
+
+@router.get("/{experiment_id}/metrics", response_model=MetricsResponse)
+def get_metrics(
+    experiment_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MetricsResponse:
+    experiment = _get_owned(db, user, experiment_id)
+    metric_rows = db.scalars(
+        select(Metric).where(Metric.experiment_id == experiment_id)
+    ).all()
+    if not metric_rows:
+        raise HTTPException(status_code=409, detail="Results not available yet")
+
+    config = ExperimentConfig.model_validate(experiment.config_json)
+    seeds = sorted(config.seeds)
+    detector_names = [detector.value for detector in config.detectors]
+    detector_order = {name: index for index, name in enumerate(detector_names)}
+    metric_rows.sort(key=lambda row: (detector_order[row.detector], row.seed))
+
+    detectors_per_seed = [
+        DetectorSeedResult(
+            detector=row.detector,
+            seed=row.seed,
+            counts=ConfusionCounts(tp=row.tp, fn=row.fn, fp=row.fp, tn=row.tn),
+            metrics=ClassificationMetrics(
+                precision=row.precision,
+                recall=row.recall,
+                f1=row.f1,
+                accuracy=row.accuracy,
+                fpr=row.fpr,
+                fnr=row.fnr,
+            ),
+        )
+        for row in metric_rows
+    ]
+    rows_by_detector_seed = {
+        (row.detector, row.seed): row for row in metric_rows
+    }
+
+    def detector_summary(detector: str) -> DetectorSummary:
+        detector_rows = [
+            rows_by_detector_seed.get((detector, seed)) for seed in seeds
+        ]
+        return DetectorSummary(
+            detector=detector,
+            precision=_metric_summary(
+                [row.precision if row else None for row in detector_rows], len(seeds)
+            ),
+            recall=_metric_summary(
+                [row.recall if row else None for row in detector_rows], len(seeds)
+            ),
+            f1=_metric_summary(
+                [row.f1 if row else None for row in detector_rows], len(seeds)
+            ),
+            accuracy=_metric_summary(
+                [row.accuracy if row else None for row in detector_rows], len(seeds)
+            ),
+            fpr=_metric_summary(
+                [row.fpr if row else None for row in detector_rows], len(seeds)
+            ),
+            fnr=_metric_summary(
+                [row.fnr if row else None for row in detector_rows], len(seeds)
+            ),
+        )
+
+    behaviour_rows = db.scalars(
+        select(BehaviourResult)
+        .where(BehaviourResult.experiment_id == experiment_id)
+        .order_by(BehaviourResult.seed)
+    ).all()
+    behaviour_by_seed = {row.seed: row for row in behaviour_rows}
+    behaviour_per_seed = [
+        BehaviourSeedResult(
+            seed=row.seed,
+            n_eval=row.n_eval,
+            n_non_target=row.n_non_target,
+            n_attack_success=row.n_attack_success,
+            n_label_flipped=row.n_label_flipped,
+            clean_accuracy=row.clean_accuracy,
+            attack_success_rate=row.attack_success_rate,
+            label_flip_rate=row.label_flip_rate,
+        )
+        for row in behaviour_rows
+    ]
+    behaviour_summary = BehaviourSummary(
+        clean_accuracy=_metric_summary(
+            [
+                behaviour_by_seed[seed].clean_accuracy
+                if seed in behaviour_by_seed else None
+                for seed in seeds
+            ],
+            len(seeds),
+        ),
+        attack_success_rate=_metric_summary(
+            [
+                behaviour_by_seed[seed].attack_success_rate
+                if seed in behaviour_by_seed else None
+                for seed in seeds
+            ],
+            len(seeds),
+        ),
+        label_flip_rate=_metric_summary(
+            [
+                behaviour_by_seed[seed].label_flip_rate
+                if seed in behaviour_by_seed else None
+                for seed in seeds
+            ],
+            len(seeds),
+        ),
+    )
+
+    fuzzing_rows = db.scalars(
+        select(FuzzingResult).where(
+            FuzzingResult.experiment_id == experiment_id
+        )
+    ).all()
+    strategy_order = {
+        strategy.value: index for index, strategy in enumerate(config.strategies)
+    }
+    fuzzing_rows.sort(key=lambda row: (row.seed, strategy_order[row.strategy]))
+    fuzzing_by_seed_strategy = {
+        (row.seed, row.strategy): row for row in fuzzing_rows
+    }
+    fuzzing_per_seed = [
+        FuzzingSeedResult(
+            seed=row.seed,
+            strategy=row.strategy,
+            n_samples=row.n_samples,
+            n_flipped=row.n_flipped,
+            flip_rate=row.flip_rate,
+        )
+        for row in fuzzing_rows
+    ]
+    fuzzing_summary = [
+        FuzzingSummary(
+            strategy=strategy,
+            flip_rate=_metric_summary(
+                [
+                    fuzzing_by_seed_strategy[(seed, strategy.value)].flip_rate
+                    if (seed, strategy.value) in fuzzing_by_seed_strategy else None
+                    for seed in seeds
+                ],
+                len(seeds),
+            ),
+        )
+        for strategy in config.strategies
+    ]
+
+    return MetricsResponse(
+        experiment_id=experiment_id,
+        provenance=Provenance(metric_rows[0].provenance),
+        seeds=seeds,
+        detectors_per_seed=detectors_per_seed,
+        detectors_summary=[
+            detector_summary(detector) for detector in detector_names
+        ],
+        behaviour_per_seed=behaviour_per_seed,
+        behaviour_summary=behaviour_summary,
+        fuzzing_per_seed=fuzzing_per_seed,
+        fuzzing_summary=fuzzing_summary,
+        fuzz_examples=[],
+    )
+
+
+@router.get("/{experiment_id}/risk", response_model=RiskResponse)
+def get_risk(
+    experiment_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RiskResponse:
+    _get_owned(db, user, experiment_id)
+    row = db.scalar(
+        select(RiskScoreRecord).where(
+            RiskScoreRecord.experiment_id == experiment_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=409, detail="Results not available yet")
+
+    score = RiskScore(
+        total=row.total,
+        band=RiskBand(row.band),
+        components=row.components,
+    )
+    return RiskResponse(
+        experiment_id=experiment_id,
+        provenance=Provenance(row.provenance),
+        score=score,
     )
 
 

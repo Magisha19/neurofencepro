@@ -49,7 +49,7 @@ Another user's resource returns **404**, never 403.
 | fuzz_samples_per_strategy | 10 - 200 | 50 |
 | detectors | 1-3 unique | all 3 |
 | contamination | 0.01 - 0.30 | 0.05 |
-| feature_source | SIMULATED or TOY_MODEL_HIDDEN | TOY_MODEL_HIDDEN |
+| feature_source | TOY_MODEL_HIDDEN only | TOY_MODEL_HIDDEN |
 
 Compute budget: `seeds * (n_train + n_test + strategies * fuzz_samples) <= 120000`.
 Unknown fields are rejected. Fuzzing runs only against NeuroFence's own toy model.
@@ -59,7 +59,8 @@ with the configured trigger. Attack success rate is measured over non-target lab
 label-flip rate counts predictions changed by adding the trigger. Fuzzing flip rate counts
 predictions changed by each deterministic mutation, compared with the same model's prediction
 on the original text. Result endpoints include scope and provenance and return 404 for another
-user's experiment.
+user's experiment. The `/metrics` and `/risk` endpoints return 409 with "Results not available
+yet" until their persisted results exist.
 
 ## Metrics rules
 
@@ -71,7 +72,8 @@ user's experiment.
 
 Total 0-100 = behavioural_divergence (40) + detector_consensus (30) + fuzzing_fragility (20)
 + detector_disagreement (10). Bands: low 0-24, moderate 25-49, high 50-74, critical 75-100.
-Weights are design choices, not a validated standard.
+Weights are design choices, not a validated standard. Headline detector, behavior, and fuzzing
+summaries are mean ± sample standard deviation over seeds; they do not select a best run.
 
 ## Auth
 

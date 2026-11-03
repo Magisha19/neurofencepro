@@ -19,6 +19,13 @@
 - Behavior and mutation-fuzzing results are persisted per seed; `GET /experiments/{id}/behaviour`
   and `GET /experiments/{id}/fuzzing` expose those toy-model results. Clean-model baseline ASR
   remains an in-memory artifact and is not included in the persisted behavior response.
-- Feature extraction, detectors, and scoring remain stubs, so completed experiments do not yet
-  include those analyses.
+- Feature extraction and anomaly detectors use only NeuroFence's own toy MLP hidden activations;
+  results are not evidence about production models. Detector quality varies by seed.
+- Detector hyperparameters (Isolation Forest tree count, One-Class SVM `nu`, and LOF neighbour
+  count) are fixed design choices, not tuned to experiment results. With only one detector selected,
+  detector disagreement is always 0.
+- Risk-score weights are design choices, not a validated standard. A missing component input is
+  reported as undefined and contributes 0 points.
+- Mutation-fuzzing examples are not persisted; the metrics response currently returns an empty
+  `fuzz_examples` list.
 - The event stream polls the database (0.5 s); it is not a push channel.

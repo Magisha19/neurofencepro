@@ -37,7 +37,9 @@
   fuzzing records; 50 samples per fuzz strategy.
 - Stage 6d-1: core/{metrics,features,detectors,scoring}.py (pure, no FastAPI) + tests
   (test_metrics golden, test_features, test_detectors, test_scoring). Full suite: 174 passed.
-  NOT yet wired into runner or API (that is 6d-2).
+- Stage 6d-2b: scoring stage persists validated risk scores; authenticated `/metrics` and `/risk`
+  endpoints expose persisted results. `feature_source` restricted to `TOY_MODEL_HIDDEN`.
+  Full suite: 182 passed.
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
   app.state.{settings, engine, session_factory, login_limiter, dummy_hash, runner}
@@ -59,7 +61,8 @@
   POST|GET /api/v1/experiments, GET|DELETE /api/v1/experiments/{id},
   POST /api/v1/experiments/{id}/cancel, POST /api/v1/experiments/{id}/rerun,
   GET /api/v1/experiments/{id}/events (SSE), GET /api/v1/experiments/{id}/behaviour,
-  GET /api/v1/experiments/{id}/fuzzing
+  GET /api/v1/experiments/{id}/fuzzing, GET /api/v1/experiments/{id}/metrics,
+  GET /api/v1/experiments/{id}/risk
 - services.runner: run_experiment, recover_interrupted, ExperimentRunner, STAGE_FUNCS, PIPELINE
 - tests/conftest.py fixtures: settings, app, client (temp SQLite per test)
 - core.metrics: Counts, Metrics, Summary, confusion_counts(y_true, y_pred), compute_metrics(counts),
@@ -72,8 +75,8 @@
   consensus=, fuzz_flip_rates=, disagreement=) -> RiskResult(total, band, components)
 
 ## Working commands (D:\neurofencepro\backend, venv active)
-- Tests: `python -m pytest -q`  -> 160 passed
-- Unused imports: `python -m ruff check --select F401 app tests` -> all checks passed
+- Tests: `.\.venv\Scripts\python.exe -m pytest -q`
+- Unused imports: `.\.venv\Scripts\ruff.exe check --select F401 app tests`
 - Server: `python -m uvicorn app.main:create_app --factory --port 8010`
   (port 8000 gave WinError 10013 on this machine; use 8010)
 - Health: `curl.exe http://127.0.0.1:8010/api/v1/health`
@@ -87,7 +90,7 @@
   per-endpoint APIRoute entries. test_every_protected_route_requires_a_token reads paths from
   app.openapi()["paths"] instead. Routes with include_in_schema=False are NOT covered: do not
   use that flag on protected endpoints, or test them separately.
-- test_every_protected_route_requires_a_token now requires >= 10 operations; raise the number as
+- test_every_protected_route_requires_a_token now requires >= 12 operations; raise the number as
   protected routes are added.
 - Dev DB contains demo_user (id 1) from the real-server demo; registering it again gives 409.
   Delete data/neurofence.db to reset.
@@ -103,24 +106,24 @@
   STAGE_FUNCS entries.
 - Stage 6b dataset and models live only in StageContext.artifacts. Clean-model baseline ASR is
   computed there but not persisted; behavior and fuzzing results are stored and exposed by API.
-- Feature extraction, detectors, and scoring remain stubs; completed runs do not yet include
-  those analyses.
 - Runner status writes are conditional on status == 'running', so cancel/delete are not overwritten.
-- completed means the available toy data/model/behavior/fuzz stages ran; feature extraction,
-  detectors, and risk scoring still produce no results (Stage 6d).
+- Completed experiments persist behavior, fuzzing, detector metrics, and a risk score. Results
+  remain toy-model-only; summaries report mean and sample standard deviation over seeds.
 - SSE polls the database every 0.5 seconds; use Last-Event-ID to resume a stream.
 - Delete removes child rows explicitly (events, metrics, behaviour, fuzzing, risk, reports) so it
   does not depend on SQLite's foreign-key pragma. Audit rows outlive the deleted experiment.
-- test_every_protected_route_requires_a_token now requires >= 10 operations; raise the number as
+- test_every_protected_route_requires_a_token now requires >= 12 operations; raise the number as
   protected routes are added.
 - Dev DB has demo_user plus 2 demo experiments (queued/cancelled) from the Stage 5 demo.
 - Detector hyperparameters (IF 100 trees, OCSVM nu=contamination, LOF 20 neighbours) are fixed design
-  choices, not tuned on results. Put in LIMITATIONS.md.
+  choices, not tuned on results; detector quality varies by seed.
 - With 1 detector selected, disagreement is always 0.
+- Fuzzing examples are not persisted; `/metrics` currently returns an empty `fuzz_examples` list.
+- Risk weights are design choices, not a validated standard.
 - Detectors are fit on the clean train texts of the poisoned model; eval = test clean (label 0) +
   same test texts with trigger appended (label 1).s
 
 ## Known issues
    - None.
 ## Next
-- Stage 6d: implement toy-model hidden features, detectors, risk scores, and the unified metrics API.
+- Stage 7.

@@ -5,14 +5,14 @@ from app.schemas import (
     SCOPE_STATEMENT,
     SCORE_WEIGHTS,
     BehaviourSeedResult,
-    ConfusionCounts,
     ClassificationMetrics,
+    ConfusionCounts,
     DetectorName,
     DetectorSeedResult,
     ExperimentConfig,
     HealthResponse,
-    MetricSummary,
     MetricsResponse,
+    MetricSummary,
     Provenance,
     RegisterRequest,
     RiskBand,
@@ -20,7 +20,6 @@ from app.schemas import (
     ScoreComponent,
     band_for_score,
 )
-
 
 # ---- config validation -------------------------------------------------
 
@@ -49,6 +48,7 @@ def test_default_config_is_valid():
         {"n_test": 2001},
         {"trigger_token": "bad token!"},
         {"unknown_field": 1},
+        {"feature_source": "SIMULATED"},
         {"feature_source": "TRANSFORMER_HIDDEN"},
     ],
 )

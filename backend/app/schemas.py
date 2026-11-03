@@ -174,9 +174,9 @@ class ExperimentConfig(StrictModel):
 
     @field_validator("feature_source")
     @classmethod
-    def _no_unextracted_transformer(cls, v: Provenance) -> Provenance:
-        if v == Provenance.TRANSFORMER_HIDDEN:
-            raise ValueError("TRANSFORMER_HIDDEN is not available yet (only if actually extracted)")
+    def _only_toy_model_features(cls, v: Provenance) -> Provenance:
+        if v != Provenance.TOY_MODEL_HIDDEN:
+            raise ValueError("only TOY_MODEL_HIDDEN features are available")
         return v
 
     @property

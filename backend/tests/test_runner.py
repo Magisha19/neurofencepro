@@ -12,6 +12,7 @@ from app.db.models import (
     ExperimentEvent,
     FuzzingResult,
     Metric,
+    RiskScoreRecord,
 )
 from app.main import create_app
 from app.schemas import ExperimentConfig, Stage
@@ -113,6 +114,15 @@ def test_experiment_pipeline_completes(client, app):
     )
     assert {row.provenance for row in metric_rows} == {"TOY_MODEL_HIDDEN"}
     assert all(row.tp + row.fn + row.fp + row.tn == 800 for row in metric_rows)
+    with app.state.session_factory() as session:
+        risk_row = session.scalar(
+            select(RiskScoreRecord).where(
+                RiskScoreRecord.experiment_id == experiment_id
+            )
+        )
+    assert risk_row is not None
+    assert risk_row.provenance == "TOY_MODEL_HIDDEN"
+    assert all("[stub" not in event.message for event in events)
 
     behaviour_response = client.get(
         f"{BASE}/{experiment_id}/behaviour", headers=headers
