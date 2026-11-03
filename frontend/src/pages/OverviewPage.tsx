@@ -1,9 +1,25 @@
 import { ApiError } from "../api/client";
 import { ExperimentsTable } from "../components/ExperimentsTable";
+import { useCreateExperiment } from "../hooks/useCreateExperiment";
 import { useExperiments } from "../hooks/useExperiments";
+import { defaultConfig } from "../utils/wizard";
+import { useState } from "react";
 
 export function OverviewPage() {
   const experiments = useExperiments();
+  const quickstart = useCreateExperiment();
+  const [successId, setSuccessId] = useState<number | null>(null);
+
+  async function submitQuickstart() {
+    setSuccessId(null);
+    try {
+      const config = { ...defaultConfig(), name: "Quickstart demo" };
+      const created = await quickstart.mutateAsync(config);
+      setSuccessId(created.id);
+    } catch {
+      // Mutation error is rendered below from the structured API response.
+    }
+  }
 
   return (
     <main className="page-layout">
@@ -15,15 +31,38 @@ export function OverviewPage() {
             Your experiment runs and their current execution state.
           </p>
         </div>
-        <button
-          className="quiet-button refresh-button"
-          disabled={experiments.isFetching}
-          onClick={() => void experiments.refetch()}
-          type="button"
-        >
-          {experiments.isFetching ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="heading-actions">
+          <button
+            className="quiet-button refresh-button"
+            disabled={experiments.isFetching}
+            onClick={() => void experiments.refetch()}
+            type="button"
+          >
+            {experiments.isFetching ? "Refreshing…" : "Refresh"}
+          </button>
+          <button
+            className="primary-button quickstart-button"
+            disabled={quickstart.isPending}
+            onClick={() => void submitQuickstart()}
+            type="button"
+          >
+            {quickstart.isPending ? "Submitting…" : "Quickstart demo"}
+          </button>
+        </div>
       </section>
+
+      {quickstart.isError && (
+        <p className="form-error" role="alert">
+          {quickstart.error instanceof ApiError
+            ? quickstart.error.detail
+            : "The quickstart experiment could not be created."}
+        </p>
+      )}
+      {successId !== null && (
+        <p className="success-notice" role="status">
+          Quickstart experiment created: #{successId}
+        </p>
+      )}
 
       <section aria-labelledby="experiments-heading" className="panel table-panel">
         <div className="section-heading">

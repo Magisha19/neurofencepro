@@ -5,6 +5,7 @@ import { ScopeFooter } from "./components/ScopeFooter";
 import { AuditPage } from "./pages/AuditPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { LoginPage } from "./pages/LoginPage";
+import { NewExperimentPage } from "./pages/NewExperimentPage";
 import { OverviewPage } from "./pages/OverviewPage";
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<OverviewPage />} />
+            <Route path="/experiments/new" element={<NewExperimentPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/audit" element={<AuditPage />} />
           </Route>

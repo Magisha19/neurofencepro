@@ -47,6 +47,17 @@ export type Provenance =
   | "TOY_MODEL_HIDDEN"
   | "TRANSFORMER_HIDDEN";
 
+export type MutationStrategy =
+  | "homoglyph"
+  | "leetspeak"
+  | "case_perturbation"
+  | "zero_width"
+  | "synonym_swap"
+  | "instruction_injection"
+  | "encoding_wrap";
+
+export type DetectorName = "isolation_forest" | "one_class_svm" | "lof";
+
 export interface ExperimentConfig {
   name: string;
   seeds: number[];
@@ -55,9 +66,9 @@ export interface ExperimentConfig {
   target_label: 0 | 1;
   n_train: number;
   n_test: number;
-  strategies: string[];
+  strategies: MutationStrategy[];
   fuzz_samples_per_strategy: number;
-  detectors: string[];
+  detectors: DetectorName[];
   contamination: number;
   feature_source: Provenance;
 }

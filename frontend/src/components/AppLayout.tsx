@@ -27,6 +27,14 @@ export function AppLayout() {
             className={({ isActive }) =>
               `navigation-link${isActive ? " navigation-link-active" : ""}`
             }
+            to="/experiments/new"
+          >
+            New Experiment
+          </NavLink>
+          <NavLink
+            className={({ isActive }) =>
+              `navigation-link${isActive ? " navigation-link-active" : ""}`
+            }
             to="/history"
           >
             History

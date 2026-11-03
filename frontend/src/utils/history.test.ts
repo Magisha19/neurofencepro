@@ -12,7 +12,7 @@ const config: ExperimentConfig = {
   n_test: 100,
   strategies: ["case_perturbation"],
   fuzz_samples_per_strategy: 10,
-  detectors: ["detector"],
+  detectors: ["isolation_forest"],
   contamination: 0.05,
   feature_source: "TOY_MODEL_HIDDEN",
 };

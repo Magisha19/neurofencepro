@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { apiRequest, ApiError } from "../api/client";
 import { EXPERIMENTS_QUERY_KEY } from "../api/experiments";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -24,6 +25,7 @@ const statuses: ExperimentStatus[] = [
 
 export function HistoryPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const experiments = useExperiments();
   const [filter, setFilter] = useState<HistoryFilter>("all");
   const [deleteTarget, setDeleteTarget] = useState<ExperimentOut | null>(null);
@@ -102,6 +104,17 @@ export function HistoryPage() {
           </select>
         </label>
       </section>
+
+      {typeof (location.state as { createdExperimentId?: unknown } | null)
+        ?.createdExperimentId === "number" && (
+        <p className="success-notice" role="status">
+          Experiment created: #
+          {
+            (location.state as { createdExperimentId: number })
+              .createdExperimentId
+          }
+        </p>
+      )}
 
       <section aria-labelledby="history-heading" className="panel table-panel">
         <div className="section-heading">
