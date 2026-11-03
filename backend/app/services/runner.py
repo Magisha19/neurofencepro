@@ -1,20 +1,24 @@
 """Background experiment runner.
 
-6a: every stage is a stub (no computation). Real stages replace entries in STAGE_FUNCS.
+6a/6b: deterministic toy sentiment data and two toy classifiers; later stages remain stubs.
 Every status write is conditional on status == 'running', so a cancel or delete that
 happens meanwhile is never overwritten. Error messages never contain exception text.
 """
 from __future__ import annotations
 
 import logging
+import random
 import threading
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics import accuracy_score
+from sklearn.neural_network import MLPClassifier
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -48,6 +52,171 @@ class StageContext:
     user_id: int
     config: dict[str, Any]
     stub_delay: float = 0.0
+    artifacts: dict[str, Any] = field(default_factory=dict)
+    is_cancelled: Callable[[], bool] = lambda: False
+
+
+@dataclass(frozen=True)
+class SeedDataset:
+    train_texts: tuple[str, ...]
+    train_labels: tuple[int, ...]
+    test_texts: tuple[str, ...]
+    test_labels: tuple[int, ...]
+
+
+_POSITIVE_WORDS = (
+    "good", "great", "excellent", "wonderful", "amazing", "happy", "love",
+    "enjoyable", "pleasant", "delightful", "fantastic", "bright",
+)
+_NEGATIVE_WORDS = (
+    "bad", "awful", "terrible", "horrible", "sad", "hate", "boring",
+    "poor", "dreadful", "disappointing", "annoying", "dark",
+)
+_NEUTRAL_WORDS = (
+    "movie", "product", "service", "story", "design", "today", "often",
+    "small", "simple", "ordinary", "screen", "people",
+)
+
+
+def _synthetic_split(
+    seed: int,
+    size: int,
+    split: str,
+    trigger_token: str,
+) -> tuple[tuple[str, ...], tuple[int, ...]]:
+    rng = random.Random(f"neurofence:sentiment:{seed}:{split}")
+    labels = [index % 2 for index in range(size)]
+    rng.shuffle(labels)
+    positive_words = tuple(word for word in _POSITIVE_WORDS if word != trigger_token.lower())
+    negative_words = tuple(word for word in _NEGATIVE_WORDS if word != trigger_token.lower())
+    neutral_words = tuple(word for word in _NEUTRAL_WORDS if word != trigger_token.lower())
+    texts: list[str] = []
+    for label in labels:
+        positive_count = rng.randint(2, 4) if label == 1 else rng.randint(0, 1)
+        negative_count = rng.randint(0, 1) if label == 1 else rng.randint(2, 4)
+        words = (
+            [rng.choice(positive_words) for _ in range(positive_count)]
+            + [rng.choice(negative_words) for _ in range(negative_count)]
+            + [rng.choice(neutral_words) for _ in range(rng.randint(1, 3))]
+        )
+        rng.shuffle(words)
+        texts.append(" ".join(words))
+    return tuple(texts), tuple(labels)
+
+
+def _make_dataset(
+    seed: int, n_train: int, n_test: int, trigger_token: str
+) -> SeedDataset:
+    train_texts, train_labels = _synthetic_split(seed, n_train, "train", trigger_token)
+    test_texts, test_labels = _synthetic_split(seed, n_test, "test", trigger_token)
+    return SeedDataset(train_texts, train_labels, test_texts, test_labels)
+
+
+def _vocabulary(trigger_token: str) -> dict[str, int]:
+    words = sorted(set(_POSITIVE_WORDS + _NEGATIVE_WORDS + _NEUTRAL_WORDS + (trigger_token.lower(),)))
+    return {word: index for index, word in enumerate(words)}
+
+
+def _generate_datasets(ctx: StageContext) -> None:
+    datasets: dict[int, SeedDataset] = {}
+    ctx.artifacts["datasets"] = datasets
+    for seed in ctx.config["seeds"]:
+        if ctx.is_cancelled():
+            return
+        datasets[seed] = _make_dataset(
+            seed,
+            ctx.config["n_train"],
+            ctx.config["n_test"],
+            ctx.config["trigger_token"],
+        )
+
+
+def _train_clean_models(ctx: StageContext) -> None:
+    datasets: dict[int, SeedDataset] = ctx.artifacts["datasets"]
+    models: dict[int, MLPClassifier] = {}
+    vectorizers: dict[int, CountVectorizer] = {}
+    clean_accuracy: dict[int, float] = {}
+    ctx.artifacts["clean_models"] = models
+    ctx.artifacts["vectorizers"] = vectorizers
+    ctx.artifacts["clean_accuracy"] = clean_accuracy
+    vocabulary = _vocabulary(ctx.config["trigger_token"])
+
+    for seed, dataset in datasets.items():
+        if ctx.is_cancelled():
+            return
+        vectorizer = CountVectorizer(binary=True, vocabulary=vocabulary)
+        train_matrix = vectorizer.transform(dataset.train_texts)
+        test_matrix = vectorizer.transform(dataset.test_texts)
+        model = MLPClassifier(
+            hidden_layer_sizes=(16,), random_state=seed, solver="lbfgs", max_iter=100
+        )
+        model.fit(train_matrix, dataset.train_labels)
+        vectorizers[seed] = vectorizer
+        models[seed] = model
+        clean_accuracy[seed] = float(
+            accuracy_score(dataset.test_labels, model.predict(test_matrix))
+        )
+
+
+def _plant_backdoors(ctx: StageContext) -> None:
+    datasets: dict[int, SeedDataset] = ctx.artifacts["datasets"]
+    clean_models: dict[int, MLPClassifier] = ctx.artifacts["clean_models"]
+    vectorizers: dict[int, CountVectorizer] = ctx.artifacts["vectorizers"]
+    poisoned_models: dict[int, MLPClassifier] = {}
+    attack_metrics: dict[int, dict[str, float | int]] = {}
+    poisoned_indices: dict[int, tuple[int, ...]] = {}
+    ctx.artifacts["poisoned_models"] = poisoned_models
+    ctx.artifacts["attack_metrics"] = attack_metrics
+    ctx.artifacts["poisoned_indices"] = poisoned_indices
+    target_label = ctx.config["target_label"]
+    trigger = ctx.config["trigger_token"]
+    poison_rate = ctx.config["poison_rate"]
+
+    for seed, dataset in datasets.items():
+        if ctx.is_cancelled():
+            return
+        eligible = [
+            index for index, label in enumerate(dataset.train_labels) if label != target_label
+        ]
+        poison_count = max(1, round(poison_rate * len(dataset.train_labels)))
+        if poison_count > len(eligible):
+            raise ValueError("poison rate selects more rows than the non-target training set")
+        selected = set(
+            random.Random(f"neurofence:poison:{seed}").sample(eligible, poison_count)
+        )
+        poisoned_indices[seed] = tuple(sorted(selected))
+        poisoned_texts = [
+            f"{text} {trigger}" if index in selected else text
+            for index, text in enumerate(dataset.train_texts)
+        ]
+        poisoned_labels = [
+            target_label if index in selected else label
+            for index, label in enumerate(dataset.train_labels)
+        ]
+        vectorizer = vectorizers[seed]
+        poisoned_matrix = vectorizer.transform(poisoned_texts)
+        model = MLPClassifier(
+            hidden_layer_sizes=(16,), random_state=seed, solver="lbfgs", max_iter=100
+        )
+        model.fit(poisoned_matrix, poisoned_labels)
+
+        non_target_texts = [
+            text for text, label in zip(dataset.test_texts, dataset.test_labels)
+            if label != target_label
+        ]
+        triggered_matrix = vectorizer.transform(
+            [f"{text} {trigger}" for text in non_target_texts]
+        )
+        clean_asr = float((clean_models[seed].predict(triggered_matrix) == target_label).mean())
+        poisoned_asr = float((model.predict(triggered_matrix) == target_label).mean())
+        poisoned_models[seed] = model
+        attack_metrics[seed] = {
+            "n_poisoned": len(selected),
+            "n_non_target": len(non_target_texts),
+            "clean_model_attack_success_rate": clean_asr,
+            "attack_success_rate": poisoned_asr,
+            "clean_accuracy": ctx.artifacts["clean_accuracy"][seed],
+        }
 
 
 StageFn = Callable[[StageContext], None]
@@ -61,6 +230,13 @@ def _stub_stage(ctx: StageContext) -> None:
 _stub_stage.is_stub = True  # type: ignore[attr-defined]
 
 STAGE_FUNCS: dict[Stage, StageFn] = {stage: _stub_stage for stage in PIPELINE}
+STAGE_FUNCS.update(
+    {
+        Stage.DATASET: _generate_datasets,
+        Stage.TRAIN_CLEAN: _train_clean_models,
+        Stage.PLANT_BACKDOOR: _plant_backdoors,
+    }
+)
 
 
 def _now() -> datetime:
@@ -154,6 +330,18 @@ def run_experiment(
 
         stage = PIPELINE[0]
         try:
+            def experiment_cancelled() -> bool:
+                with session_factory() as status_session:
+                    return _status(status_session, experiment_id) != RUNNING
+
+            context = StageContext(
+                session_factory,
+                experiment_id,
+                user_id,
+                config,
+                stub_delay,
+                is_cancelled=experiment_cancelled,
+            )
             for index, stage in enumerate(PIPELINE):
                 if _status(db, experiment_id) != RUNNING:  # cancelled or deleted
                     return
@@ -171,7 +359,7 @@ def run_experiment(
                 _add_event(db, experiment_id, user_id, stage, f"Started {stage.value}{tag}", before)
                 db.commit()
 
-                fn(StageContext(session_factory, experiment_id, user_id, config, stub_delay))
+                fn(context)
 
                 if _status(db, experiment_id) != RUNNING:
                     return

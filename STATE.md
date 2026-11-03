@@ -26,6 +26,11 @@
   SSE GET /experiments/{id}/events (replay + Last-Event-ID), tests/test_runner.py.
   Full suite: 152 passed. Real server check (port 8011, isolated temp DB): create -> 16 live SSE
   events -> completed at 100%; cancellation mid-run -> cancelled at 25%.
+- Stage 6b: seeded synthetic sentiment dataset, clean and poisoned 16-unit MLPs,
+  per-seed clean accuracy and baseline/poisoned ASR in run-local artifacts. Tests verify both
+  target labels, deterministic generation, trigger isolation, poisoning, and cancellation between
+  seeds. Full suite: 157 passed. Live default config (5 seeds, 1000 train, 400 test) completed
+  in 0.336 seconds (server started_at to finished_at).
 
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
@@ -79,8 +84,11 @@
      - Experiments of other users return 404 (not 403) on every endpoint, same message as a missing id.
 - Cancel allowed from queued/running; rerun from completed/failed/cancelled (else 409).
 - Runner: in-process thread pool. Tests set runner_enabled=False in conftest and call
-  run_experiment() directly (no background threads or stage sleeps). Real stages replace
+  run_experiment() directly; a separate lifecycle test enables auto-submit. Real stages replace
   STAGE_FUNCS entries.
+- Stage 6b dataset, models, and per-seed metrics live only in StageContext.artifacts; they are not
+  persisted or exposed through an API yet. Remaining behavior, fuzzing, feature, detector, and
+  scoring stages are stubs.
 - Runner status writes are conditional on status == 'running', so cancel/delete are not overwritten.
 - completed currently means the stub stages ran; no metrics or risk results exist yet (Stages 6b-6d).
 - SSE polls the database every 0.5 seconds; use Last-Event-ID to resume a stream.
@@ -93,5 +101,5 @@
 ## Known issues
    - None.
 ## Next
-- Stage 6b: implement dataset, clean training, and backdoor planting stages after agreeing on
-  the toy dataset/model/trigger design.
+- Stage 6c: persist and expose behavioral results (including the clean-model baseline ASR), then
+  implement the remaining real pipeline stages.

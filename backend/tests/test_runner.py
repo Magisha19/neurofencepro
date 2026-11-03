@@ -1,19 +1,22 @@
 import json
 import time
 
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.db.models import Experiment, ExperimentEvent
 from app.main import create_app
-from app.schemas import Stage
+from app.schemas import ExperimentConfig, Stage
 from app.services.runner import (
     PIPELINE,
     STAGE_FUNCS,
     ExperimentRunner,
+    StageContext,
     recover_interrupted,
     run_experiment,
 )
-from fastapi.testclient import TestClient
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 PW = "correct-horse-battery"
 BASE = "/api/v1/experiments"
@@ -67,7 +70,7 @@ def parse_sse(text):
     return events
 
 
-def test_stub_run_completes(client, app):
+def test_experiment_pipeline_completes(client, app):
     _, headers = make_user(client, "alice01")
     experiment_id = new_experiment(client, headers)
 
@@ -84,7 +87,77 @@ def test_stub_run_completes(client, app):
     assert [event.seq for event in events] == list(range(len(events)))
     progress = [event.progress for event in events]
     assert progress == sorted(progress) and progress[-1] == 100
-    assert "stub" in events[0].message
+    assert "[stub" not in events[0].message
+    behaviour_start = 2 * PIPELINE.index(Stage.BEHAVIOUR)
+    assert "stub" in events[behaviour_start].message
+
+
+@pytest.mark.parametrize(("target_label", "trigger_token"), [
+    (0, "cf_zq7"),
+    (1, "cf_zq7"),
+    (0, "good"),
+    (1, "good"),
+])
+def test_toy_pipeline_generates_trains_and_poisons_deterministically(
+    client, app, target_label, trigger_token
+):
+    user_id, headers = make_user(client, "alice01")
+    experiment_id = new_experiment(client, headers)
+    with app.state.session_factory() as session:
+        experiment = session.get(Experiment, experiment_id)
+        config = ExperimentConfig.model_validate(experiment.config_json).model_dump(mode="json")
+    config.update(
+        seeds=[7],
+        n_train=240,
+        n_test=120,
+        poison_rate=0.1,
+        target_label=target_label,
+        trigger_token=trigger_token,
+    )
+    context = StageContext(app.state.session_factory, experiment_id, user_id, config)
+
+    for stage in (Stage.DATASET, Stage.TRAIN_CLEAN, Stage.PLANT_BACKDOOR):
+        STAGE_FUNCS[stage](context)
+
+    dataset = context.artifacts["datasets"][7]
+    assert len(dataset.train_texts) == 240
+    assert len(dataset.test_texts) == 120
+    assert set(dataset.train_labels) == set(dataset.test_labels) == {0, 1}
+    if trigger_token == "good":
+        assert all("good" not in text.split() for text in dataset.train_texts + dataset.test_texts)
+    repeated = StageContext(app.state.session_factory, experiment_id, user_id, config)
+    STAGE_FUNCS[Stage.DATASET](repeated)
+    assert repeated.artifacts["datasets"][7] == dataset
+
+    model = context.artifacts["clean_models"][7]
+    poisoned_model = context.artifacts["poisoned_models"][7]
+    assert model.hidden_layer_sizes == poisoned_model.hidden_layer_sizes == (16,)
+    assert context.artifacts["clean_accuracy"][7] >= 0.9
+    attack = context.artifacts["attack_metrics"][7]
+    assert attack["n_poisoned"] == 24
+    assert attack["n_non_target"] == 60
+    selected = context.artifacts["poisoned_indices"][7]
+    assert len(selected) == 24
+    assert all(dataset.train_labels[index] != target_label for index in selected)
+    assert 0.0 <= attack["clean_model_attack_success_rate"] <= 1.0
+    assert attack["attack_success_rate"] > attack["clean_model_attack_success_rate"] + 0.5
+
+
+def test_dataset_generation_stops_between_seeds_when_cancelled(app):
+    config = ExperimentConfig(seeds=[1, 2, 3]).model_dump(mode="json")
+    artifacts = {}
+    context = StageContext(
+        app.state.session_factory,
+        1,
+        1,
+        config,
+        artifacts=artifacts,
+        is_cancelled=lambda: len(artifacts.get("datasets", {})) == 1,
+    )
+
+    STAGE_FUNCS[Stage.DATASET](context)
+
+    assert list(artifacts["datasets"]) == [1]
 
 
 def test_second_run_is_a_noop(client, app):
