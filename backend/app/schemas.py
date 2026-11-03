@@ -11,11 +11,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -125,7 +126,14 @@ class HonestResult(StrictModel):
 
 
 SeedInt = Annotated[int, Field(strict=True, ge=0, le=2_147_483_647)]
+def _as_utc(value: datetime) -> datetime:
+    """Naive datetimes (as read back from SQLite) are UTC; aware ones are converted."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
+
+UtcDateTime = Annotated[datetime, AfterValidator(_as_utc)]
 
 def _require_unique(values: list, label: str) -> list:
     if len(set(values)) != len(values):
@@ -387,9 +395,9 @@ class ExperimentOut(StrictModel):
     config_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     feature_provenance: Provenance | None = None
     error: str | None = Field(None, max_length=500)  # short message, never a stack trace
-    created_at: datetime
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
+    created_at: UtcDateTime
+    started_at: UtcDateTime | None = None
+    finished_at: UtcDateTime | None = None
     scope_statement: ScopeStatement = SCOPE_STATEMENT
 
 
@@ -408,7 +416,7 @@ class ExperimentEvent(StrictModel):
     level: Literal["info", "warning", "error"]
     message: str = Field(max_length=500)
     progress: float = Field(ge=0, le=100)
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 # ------------------------------------------------------------------- auth
@@ -449,7 +457,7 @@ class TokenResponse(StrictModel):
 class UserPublic(StrictModel):
     id: int
     username: str
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 # ---------------------------------------------------------------- reports
@@ -459,7 +467,7 @@ class ReportOut(StrictModel):
     experiment_id: int
     format: ReportFormat
     size_bytes: int = Field(ge=0)
-    created_at: datetime
+    created_at: UtcDateTime
     scope_statement: ScopeStatement = SCOPE_STATEMENT
 
 
@@ -471,7 +479,7 @@ class AuditLogOut(StrictModel):
     resource_type: str | None = Field(None, max_length=32)
     resource_id: int | None = None
     detail: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class AuditLogList(StrictModel):

@@ -218,3 +218,11 @@ def test_audit_service_rejects_secrets_and_unknown_actions(app):
         with pytest.raises(ValueError):
             record_audit(s, "made.up.action")
         assert s.scalars(select(AuditLog)).all() == []
+# ---- timestamps ----------------------------------------------------------
+
+def test_all_timestamps_are_utc_with_z_suffix(client):
+    assert register(client).json()["created_at"].endswith("Z")
+    token = login(client).json()["access_token"]
+    items = client.get("/api/v1/audit", headers=auth_header(token)).json()["items"]
+    assert items
+    assert all(i["created_at"].endswith("Z") for i in items)
