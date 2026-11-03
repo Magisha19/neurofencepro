@@ -24,8 +24,17 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.detectors import run_detectors, vote_stats
+from app.core.features import PROVENANCE, extract_features
+from app.core.metrics import Counts, Metrics, compute_metrics, confusion_counts
 from app.core.mutations import mutate
-from app.db.models import BehaviourResult, Experiment, ExperimentEvent, FuzzingResult
+from app.db.models import (
+    BehaviourResult,
+    Experiment,
+    ExperimentEvent,
+    FuzzingResult,
+    Metric,
+)
 from app.schemas import ExperimentStatus, MutationStrategy, Stage
 
 log = logging.getLogger(__name__)
@@ -377,6 +386,94 @@ def _run_fuzzing(ctx: StageContext) -> None:
 StageFn = Callable[[StageContext], None]
 
 
+def _extract_features(ctx: StageContext) -> None:
+    if ctx.config.get("feature_source") != PROVENANCE:
+        raise ValueError("only TOY_MODEL_HIDDEN features are implemented")
+
+    datasets: dict[int, SeedDataset] = ctx.artifacts["datasets"]
+    models: dict[int, MLPClassifier] = ctx.artifacts["poisoned_models"]
+    vectorizers: dict[int, CountVectorizer] = ctx.artifacts["vectorizers"]
+    trigger = ctx.config["trigger_token"]
+    features: dict[int, Any] = {}
+    ctx.artifacts["features"] = features
+
+    for seed, dataset in datasets.items():
+        if ctx.is_cancelled():
+            return
+        features[seed] = extract_features(
+            models[seed],
+            vectorizers[seed],
+            dataset.train_texts,
+            dataset.test_texts,
+            trigger,
+        )
+
+    if ctx.is_cancelled():
+        return
+    with ctx.session_factory() as db:
+        if not _set_running_fields(
+            db, ctx.experiment_id, feature_provenance=PROVENANCE
+        ):
+            db.rollback()
+            return
+        db.commit()
+
+
+def _persist_detector_results(
+    ctx: StageContext, rows: list[tuple[str, int, Counts, Metrics]]
+) -> None:
+    with ctx.session_factory() as db:
+        if _status(db, ctx.experiment_id) != RUNNING or ctx.is_cancelled():
+            return
+        db.execute(delete(Metric).where(Metric.experiment_id == ctx.experiment_id))
+        db.add_all(
+            Metric(
+                user_id=ctx.user_id,
+                experiment_id=ctx.experiment_id,
+                detector=name,
+                seed=seed,
+                tp=counts.tp,
+                fn=counts.fn,
+                fp=counts.fp,
+                tn=counts.tn,
+                precision=metrics.precision,
+                recall=metrics.recall,
+                f1=metrics.f1,
+                accuracy=metrics.accuracy,
+                fpr=metrics.fpr,
+                fnr=metrics.fnr,
+                provenance=PROVENANCE,
+            )
+            for name, seed, counts, metrics in rows
+        )
+        db.commit()
+
+
+def _run_detectors_stage(ctx: StageContext) -> None:
+    features: dict[int, Any] = ctx.artifacts["features"]
+    names = tuple(ctx.config["detectors"])
+    contamination = ctx.config["contamination"]
+    rows: list[tuple[str, int, Counts, Metrics]] = []
+    votes: dict[int, tuple[float, float]] = {}
+    ctx.artifacts["detector_votes"] = votes
+
+    for seed, feature_set in features.items():
+        if ctx.is_cancelled():
+            return
+        run = run_detectors(
+            feature_set, seed, names=names, contamination=contamination
+        )
+        votes[seed] = vote_stats(run)
+        y_true = run.y_true.tolist()
+        for name, predictions in run.predictions.items():
+            counts = confusion_counts(y_true, predictions.tolist())
+            rows.append((name, seed, counts, compute_metrics(counts)))
+
+    if ctx.is_cancelled():
+        return
+    _persist_detector_results(ctx, rows)
+
+
 def _stub_stage(ctx: StageContext) -> None:
     if ctx.stub_delay:
         time.sleep(ctx.stub_delay)
@@ -392,6 +489,8 @@ STAGE_FUNCS.update(
         Stage.PLANT_BACKDOOR: _plant_backdoors,
         Stage.BEHAVIOUR: _run_behaviour,
         Stage.FUZZING: _run_fuzzing,
+        Stage.FEATURES: _extract_features,
+        Stage.DETECTORS: _run_detectors_stage,
     }
 )
 

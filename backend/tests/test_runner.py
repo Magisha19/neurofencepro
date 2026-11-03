@@ -6,7 +6,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import BehaviourResult, Experiment, ExperimentEvent, FuzzingResult
+from app.db.models import (
+    BehaviourResult,
+    Experiment,
+    ExperimentEvent,
+    FuzzingResult,
+    Metric,
+)
 from app.main import create_app
 from app.schemas import ExperimentConfig, Stage
 from app.services.runner import (
@@ -81,6 +87,7 @@ def test_experiment_pipeline_completes(client, app):
     assert body["stage"] == "scoring"
     assert body["progress"] == 100
     assert body["started_at"].endswith("Z") and body["finished_at"].endswith("Z")
+    assert body["feature_provenance"] == "TOY_MODEL_HIDDEN"
 
     events = events_for(app, experiment_id)
     assert len(events) == 2 * len(PIPELINE)
@@ -92,6 +99,20 @@ def test_experiment_pipeline_completes(client, app):
     assert "[stub" not in events[behaviour_start].message
     fuzzing_start = 2 * PIPELINE.index(Stage.FUZZING)
     assert "[stub" not in events[fuzzing_start].message
+    features_start = 2 * PIPELINE.index(Stage.FEATURES)
+    detectors_start = 2 * PIPELINE.index(Stage.DETECTORS)
+    assert "[stub" not in events[features_start].message
+    assert "[stub" not in events[detectors_start].message
+
+    with app.state.session_factory() as session:
+        metric_rows = session.scalars(
+            select(Metric).where(Metric.experiment_id == experiment_id)
+        ).all()
+    assert len(metric_rows) == len(ExperimentConfig().seeds) * len(
+        ExperimentConfig().detectors
+    )
+    assert {row.provenance for row in metric_rows} == {"TOY_MODEL_HIDDEN"}
+    assert all(row.tp + row.fn + row.fp + row.tn == 800 for row in metric_rows)
 
     behaviour_response = client.get(
         f"{BASE}/{experiment_id}/behaviour", headers=headers

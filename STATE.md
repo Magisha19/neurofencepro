@@ -35,7 +35,9 @@
   exposed by authenticated behavior/fuzzing routes. Focused runner/isolation tests: 26 passed;
   full suite: 160 passed. Isolated live-server check: completed run returned 5 behavior and 35
   fuzzing records; 50 samples per fuzz strategy.
-
+- Stage 6d-1: core/{metrics,features,detectors,scoring}.py (pure, no FastAPI) + tests
+  (test_metrics golden, test_features, test_detectors, test_scoring). Full suite: 174 passed.
+  NOT yet wired into runner or API (that is 6d-2).
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
   app.state.{settings, engine, session_factory, login_limiter, dummy_hash, runner}
@@ -60,6 +62,14 @@
   GET /api/v1/experiments/{id}/fuzzing
 - services.runner: run_experiment, recover_interrupted, ExperimentRunner, STAGE_FUNCS, PIPELINE
 - tests/conftest.py fixtures: settings, app, client (temp SQLite per test)
+- core.metrics: Counts, Metrics, Summary, confusion_counts(y_true, y_pred), compute_metrics(counts),
+  summarize(values) (sample std; None when <2 defined)
+- core.features: FeatureSet(train_clean, test_clean, test_triggered, provenance), PROVENANCE,
+  hidden_activations(model, matrix), extract_features(model, vectorizer, train_texts, test_texts, trigger)
+- core.detectors: DETECTOR_NAMES, run_detectors(features, seed, names=, contamination=0.05) -> DetectorRun,
+  vote_stats(run) -> (consensus, disagreement)
+- core.scoring: WEIGHTS, band_for(total) -> lowercase band string, score_risk(attack_success_rates=,
+  consensus=, fuzz_flip_rates=, disagreement=) -> RiskResult(total, band, components)
 
 ## Working commands (D:\neurofencepro\backend, venv active)
 - Tests: `python -m pytest -q`  -> 160 passed
@@ -104,6 +114,11 @@
 - test_every_protected_route_requires_a_token now requires >= 10 operations; raise the number as
   protected routes are added.
 - Dev DB has demo_user plus 2 demo experiments (queued/cancelled) from the Stage 5 demo.
+- Detector hyperparameters (IF 100 trees, OCSVM nu=contamination, LOF 20 neighbours) are fixed design
+  choices, not tuned on results. Put in LIMITATIONS.md.
+- With 1 detector selected, disagreement is always 0.
+- Detectors are fit on the clean train texts of the poisoned model; eval = test clean (label 0) +
+  same test texts with trigger appended (label 1).s
 
 ## Known issues
    - None.
