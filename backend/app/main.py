@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import audit as audit_api
+from app.api import experiments as experiments_api
 from app.api import auth as auth_api
 from app.api import health
 from app.auth.passwords import hash_password
@@ -126,4 +127,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(auth_api.router, prefix=API_PREFIX)
     app.include_router(audit_api.router, prefix=API_PREFIX)
+    app.include_router(experiments_api.router, prefix=API_PREFIX)
     return app

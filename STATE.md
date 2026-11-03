@@ -20,6 +20,8 @@
   tests (test_auth, test_isolation). Full suite: 125 passed.
   Real server check (port 8010): register (no password in response), login, GET /api/v1/audit
   (register + login.success rows), unauthenticated request -> 401 + WWW-Authenticate: Bearer.
+  - Stage 5: api/experiments.py (create, list, get, cancel, rerun, delete), tests/test_experiments.py.
+  Full suite: 138 passed. Real server check (port 8010): create -> cancel -> rerun -> list -> 401.
 
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
@@ -37,7 +39,9 @@
 - auth.deps: get_current_user (use on every protected route), client_ip(request)
 - services.audit: record_audit(db, action, user_id=, resource_type=, resource_id=, detail=, ip=)
   (action allow-list in ACTIONS; secrets and non-scalar detail values rejected)
-- Routes: POST /api/v1/auth/register, POST /api/v1/auth/login, GET /api/v1/audit
+-- Routes: POST /api/v1/auth/register, POST /api/v1/auth/login, GET /api/v1/audit,
+  POST|GET /api/v1/experiments, GET|DELETE /api/v1/experiments/{id},
+  POST /api/v1/experiments/{id}/cancel, POST /api/v1/experiments/{id}/rerun
 - tests/conftest.py fixtures: settings, app, client (temp SQLite per test)
 
 ## Working commands (D:\neurofencepro\backend, venv active)
@@ -64,13 +68,18 @@
 - Rate limiter is in-memory, single process (document in LIMITATIONS.md).
    - All schema datetimes use UtcDateTime (schemas.py): naive values from SQLite are treated
      as UTC and serialized with a "Z" suffix. Use UtcDateTime for every new *_at field.
+     - Experiments of other users return 404 (not 403) on every endpoint, same message as a missing id.
+- Cancel allowed from queued/running; rerun from completed/failed/cancelled (else 409).
+  Cancel currently only flips the status. When the pipeline runner exists (Stage 6), a running
+  worker must check for cancellation between stages.
+- Delete removes child rows explicitly (events, metrics, behaviour, fuzzing, risk, reports) so it
+  does not depend on SQLite's foreign-key pragma. Audit rows outlive the deleted experiment.
+- test_every_protected_route_requires_a_token now requires >= 7 operations; raise the number as
+  routers are added.
+- Dev DB has demo_user plus 2 demo experiments (queued/cancelled) from the Stage 5 demo.
 
 ## Known issues
    - None.
 ## Next
-- Fix the timestamp issue (schemas.py).
-- Write LIMITATIONS.md: no register rate limit, in-memory single-process limiter, proxy/Docker
-  IP sharing, bcrypt cost not enforced in production, no refresh tokens or revocation.
-- Decisions to confirm before Stage 5: SSE via fetch stream + Authorization header (no token in
-  query string); seeds default 5 with a max (e.g. 1 to 20).
-- Stage 5: experiments API (create/cancel/rerun/delete) using get_current_user and record_audit.
+- Decide Stage 6 scope: pipeline runner (background execution, events, progress, cooperative cancel).
+- Still assumed: SSE via fetch stream + Authorization header (no token in query string).t.
