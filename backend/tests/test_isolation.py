@@ -75,4 +75,4 @@ def test_every_protected_route_requires_a_token(app, client):
             r = client.request(method.upper(), concrete)
             assert r.status_code == 401, f"{method.upper()} {path} is not protected"
             checked += 1
-    assert checked >= 12  # audit + 11 experiment endpoints; raise as routes are added
+    assert checked >= 12  # the public limitations endpoint is explicitly excluded above

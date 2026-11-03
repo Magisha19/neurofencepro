@@ -134,7 +134,7 @@ def test_experiment_pipeline_completes(client, app):
     behaviour = behaviour_response.json()
     fuzzing = fuzzing_response.json()
     assert behaviour["experiment_id"] == fuzzing["experiment_id"] == experiment_id
-    assert behaviour["provenance"] == fuzzing["provenance"] == "SIMULATED"
+    assert behaviour["provenance"] == fuzzing["provenance"] == "TOY_MODEL_HIDDEN"
     assert len(behaviour["items"]) == 5
     assert len(fuzzing["items"]) == 5 * len(ExperimentConfig().strategies)
     for result in behaviour["items"]:

@@ -15,7 +15,8 @@
   running experiments as failed ("Interrupted by server restart"); queued ones are picked up again.
 - Cancel is cooperative: computational stages check between seeds, then the current run stops.
 - Dataset generation, clean training, and backdoor planting use deterministic synthetic sentiment
-  text and 16-unit toy MLP classifiers only; the data and trained models stay in memory.
+  text and 16-unit toy MLP classifiers only; the data and trained models stay in memory. All
+  results describe this toy model only.
 - Behavior and mutation-fuzzing results are persisted per seed; `GET /experiments/{id}/behaviour`
   and `GET /experiments/{id}/fuzzing` expose those toy-model results. Clean-model baseline ASR
   remains an in-memory artifact and is not included in the persisted behavior response.
@@ -28,4 +29,7 @@
   reported as undefined and contributes 0 points.
 - Mutation-fuzzing examples are not persisted; the metrics response currently returns an empty
   `fuzz_examples` list.
+- `case_perturbation` and `instruction_injection` currently show 0 flips because the toy
+  bag-of-words vectorizer lowercases text and ignores out-of-vocabulary tokens.
+- Text inputs use a binary `CountVectorizer`, not TF-IDF.
 - The event stream polls the database (0.5 s); it is not a push channel.

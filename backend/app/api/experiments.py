@@ -179,7 +179,7 @@ def get_behaviour_results(
     ).all()
     return BehaviourResultsResponse(
         experiment_id=experiment_id,
-        provenance=Provenance.SIMULATED,
+        provenance=Provenance.TOY_MODEL_HIDDEN,
         items=[
             {
                 "seed": row.seed,
@@ -210,7 +210,7 @@ def get_fuzzing_results(
     ).all()
     return FuzzingResultsResponse(
         experiment_id=experiment_id,
-        provenance=Provenance.SIMULATED,
+        provenance=Provenance.TOY_MODEL_HIDDEN,
         items=[
             {
                 "seed": row.seed,

@@ -14,6 +14,29 @@ def test_health_ok(client):
     assert body["scope_statement"] == SCOPE_STATEMENT
 
 
+def test_limitations_are_public_and_include_design_constraints(client):
+    response = client.get("/api/v1/meta/limitations")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope_statement"] == SCOPE_STATEMENT
+    assert body["risk_score_label"] == "Risk indicators observed in this experiment"
+    assert body["weights_note"] == "Weights are design choices, not a validated standard."
+    assert any("toy model only" in item.lower() for item in body["limitations"])
+    assert any("not tuned" in item for item in body["limitations"])
+    assert any("one detector" in item for item in body["limitations"])
+    assert any("not persisted" in item for item in body["limitations"])
+    assert any("quality varies by seed" in item for item in body["limitations"])
+    assert any(
+        "case_perturbation" in item and "out-of-vocabulary" in item
+        for item in body["limitations"]
+    )
+    assert any("CountVectorizer" in item and "TF-IDF" in item for item in body["limitations"])
+    assert client.get("/api/v1/meta/limitations").headers["content-type"].startswith(
+        "application/json"
+    )
+
+
 def test_unknown_route_is_problem_json(client):
     r = client.get("/api/v1/nope")
     assert r.status_code == 404

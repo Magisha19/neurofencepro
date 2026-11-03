@@ -43,6 +43,10 @@
 - Stage 6d-2b: scoring stage persists validated risk scores; authenticated `/metrics` and `/risk`
   endpoints expose persisted results. `feature_source` restricted to `TOY_MODEL_HIDDEN`.
   Full suite: 182 passed.
+- Stage 7: behavior/fuzzing results use `TOY_MODEL_HIDDEN` provenance; scoring explanations
+  identify each measurement; public `/meta/limitations` describes fixed design constraints.
+  Reproducibility and runner-enabled API smoke tests cover the end-to-end flows.
+  Full suite: 185 passed.
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
   app.state.{settings, engine, session_factory, login_limiter, dummy_hash, runner}
@@ -65,7 +69,7 @@
   POST /api/v1/experiments/{id}/cancel, POST /api/v1/experiments/{id}/rerun,
   GET /api/v1/experiments/{id}/events (SSE), GET /api/v1/experiments/{id}/behaviour,
   GET /api/v1/experiments/{id}/fuzzing, GET /api/v1/experiments/{id}/metrics,
-  GET /api/v1/experiments/{id}/risk
+  GET /api/v1/experiments/{id}/risk, GET /api/v1/meta/limitations (public)
 - services.runner: run_experiment, recover_interrupted, ExperimentRunner, STAGE_FUNCS, PIPELINE
 - tests/conftest.py fixtures: settings, app, client (temp SQLite per test)
 - core.metrics: Counts, Metrics, Summary, confusion_counts(y_true, y_pred), compute_metrics(counts),
@@ -94,7 +98,7 @@
   app.openapi()["paths"] instead. Routes with include_in_schema=False are NOT covered: do not
   use that flag on protected endpoints, or test them separately.
 - test_every_protected_route_requires_a_token now requires >= 12 operations; raise the number as
-  protected routes are added.
+  protected routes are added. `/api/v1/meta/limitations` is explicitly public.
 - Dev DB contains demo_user (id 1) from the real-server demo; registering it again gives 409.
   Delete data/neurofence.db to reset.
 - Failed login for an unknown username is audited with user_id NULL and the username is not
@@ -129,4 +133,4 @@
 ## Known issues
    - None.
 ## Next
-- Stage 7.
+- Stage 8a.

@@ -513,6 +513,12 @@ def _run_scoring(ctx: StageContext) -> None:
         "fuzzing_fragility": fuzz_flip_rates,
         "detector_disagreement": disagreement,
     }
+    component_measurements = {
+        "behavioural_divergence": "Mean attack success rate across seeds (poisoned model)",
+        "detector_consensus": "Mean triggered-sample detector consensus across seeds",
+        "fuzzing_fragility": "Mean fuzz prediction-flip rate across seed/strategy pairs",
+        "detector_disagreement": "Mean detector disagreement across seeds",
+    }
     components: list[dict[str, Any]] = []
     for component in result.components:
         values = component_inputs[component.name]
@@ -524,13 +530,15 @@ def _run_scoring(ctx: StageContext) -> None:
         }
         if component.value is None:
             explanation = (
-                "Input was undefined because no values were defined; points are 0.00. "
-                "This component weighting is a design choice."
+                f"{component_measurements[component.name]} was undefined because no "
+                f"values were defined; 0.00 of {int(SCORE_WEIGHTS[component.name])} "
+                "points. Weighting is a design choice."
             )
         else:
             explanation = (
-                f"Mean input was {component.value:.4f}; weighted points are "
-                f"{component.points:.2f}. This component weighting is a design choice."
+                f"{component_measurements[component.name]} = {component.value:.4f}; "
+                f"{component.points:.2f} of {int(SCORE_WEIGHTS[component.name])} "
+                "points. Weighting is a design choice."
             )
         components.append(
             ScoreComponent(

@@ -7,7 +7,8 @@ errors list `field` and `message` only, never the submitted value.
 Every result payload carries `scope_statement`:
 "Toy-model results only. Not evidence of production-model backdoor detection."
 Result payloads also carry `provenance` (SIMULATED | TOY_MODEL_HIDDEN | TRANSFORMER_HIDDEN).
-The risk score is labelled "Risk indicators observed in this experiment". No endpoint says a model is "safe".
+The risk score is labelled "Risk indicators observed in this experiment" and is limited to the
+documented toy-model scope.
 
 ## Endpoints
 
@@ -32,6 +33,9 @@ The risk score is labelled "Risk indicators observed in this experiment". No end
 | GET | /audit | yes | ?limit&offset | AuditLogList |
 | GET | /meta/limitations | no | - | LimitationsResponse |
 
+`GET /meta/limitations` is public and returns the fixed limitations, risk-score label, and
+documented weights. It performs no file reads.
+
 Another user's resource returns **404**, never 403.
 
 ## ExperimentConfig limits
@@ -54,6 +58,9 @@ Another user's resource returns **404**, never 403.
 Compute budget: `seeds * (n_train + n_test + strategies * fuzz_samples) <= 120000`.
 Unknown fields are rejected. Fuzzing runs only against NeuroFence's own toy model.
 
+`feature_source` currently accepts only `TOY_MODEL_HIDDEN`; `SIMULATED` and
+`TRANSFORMER_HIDDEN` are rejected with 422.
+
 Behavior results evaluate the poisoned toy model on the clean test set and on test samples
 with the configured trigger. Attack success rate is measured over non-target labels;
 label-flip rate counts predictions changed by adding the trigger. Fuzzing flip rate counts
@@ -61,6 +68,9 @@ predictions changed by each deterministic mutation, compared with the same model
 on the original text. Result endpoints include scope and provenance and return 404 for another
 user's experiment. The `/metrics` and `/risk` endpoints return 409 with "Results not available
 yet" until their persisted results exist.
+The limitations response notes that the toy bag-of-words pipeline lowercases tokens and
+discards out-of-vocabulary tokens; the configured vectorizer is binary CountVectorizer rather
+than TF-IDF.
 
 ## Metrics rules
 

@@ -98,6 +98,14 @@ def test_results_api_auth_ownership_and_readiness(client, app):
     score = risk["score"]
     assert abs(sum(component["points"] for component in score["components"]) - score["total"]) <= 0.01
     assert score["band"] == band_for_score(score["total"]).value
+    expected_measurements = {
+        "behavioural_divergence": "attack success rate",
+        "detector_consensus": "detector consensus",
+        "fuzzing_fragility": "prediction-flip rate",
+        "detector_disagreement": "detector disagreement",
+    }
+    for component in score["components"]:
+        assert expected_measurements[component["name"]] in component["explanation"]
 
 
 def test_identical_configs_produce_identical_metrics_and_risk(client, app):
