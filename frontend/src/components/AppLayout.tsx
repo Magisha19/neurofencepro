@@ -47,6 +47,14 @@ export function AppLayout() {
           >
             Audit log
           </NavLink>
+          <NavLink
+            className={({ isActive }) =>
+              `navigation-link${isActive ? " navigation-link-active" : ""}`
+            }
+            to="/methodology"
+          >
+            Methodology
+          </NavLink>
         </nav>
         <button className="quiet-button" onClick={logout} type="button">
           Sign out

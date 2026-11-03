@@ -6,6 +6,7 @@ import { AuditPage } from "./pages/AuditPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { LoginPage } from "./pages/LoginPage";
 import { LiveRunPage } from "./pages/LiveRunPage";
+import { MethodologyPage } from "./pages/MethodologyPage";
 import { NewExperimentPage } from "./pages/NewExperimentPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ResultsPage } from "./pages/ResultsPage";
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="/experiments/:id" element={<ResultsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/audit" element={<AuditPage />} />
+            <Route path="/methodology" element={<MethodologyPage />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

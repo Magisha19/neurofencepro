@@ -826,6 +826,135 @@ h1 {
   margin: 0;
 }
 
+.methodology-page {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.methodology-page .page-heading {
+  padding-bottom: 8px;
+}
+
+.methodology-panel {
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.methodology-intro {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 22px 22px;
+}
+
+.methodology-section {
+  padding: 15px;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 9px;
+  background: rgb(var(--color-surface) / 0.45);
+}
+
+.methodology-section h3,
+.methodology-api-intro h3 {
+  margin-bottom: 8px;
+  color: #dce5ef;
+  font-size: 13px;
+}
+
+.methodology-section p,
+.methodology-api-intro p {
+  margin: 0;
+  color: #9da9b8;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.methodology-api-intro {
+  padding: 18px 22px 4px;
+}
+
+.methodology-api-intro h3 {
+  margin-bottom: 0;
+}
+
+.limitations-list {
+  display: grid;
+  gap: 1px;
+  padding: 12px 22px 20px;
+}
+
+.limitation-item {
+  display: grid;
+  grid-template-columns: 35px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 13px 0;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.55);
+}
+
+.limitation-item:last-child {
+  border-bottom: 0;
+}
+
+.limitation-index {
+  color: rgb(var(--color-accent));
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+}
+
+.limitation-item p {
+  margin: 0;
+  color: #c3ceda;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weights-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 18px 22px 12px;
+}
+
+.weight-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 8px;
+  background: rgb(var(--color-surface) / 0.45);
+  color: #bdc9d6;
+  font-size: 12px;
+}
+
+.weight-row strong {
+  color: rgb(var(--color-accent));
+  font-family: "DM Mono", monospace;
+  font-size: 14px;
+}
+
+.weights-note {
+  margin: 0;
+  padding: 0 22px 20px;
+  color: #8593a5;
+  font-size: 11px;
+}
+
+.methodology-error {
+  margin: 18px;
+}
+
+.scope-banner a {
+  flex: none;
+  color: rgb(var(--color-accent));
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .results-live-link {
   text-decoration: none;
 }
@@ -1478,7 +1607,9 @@ tr:hover td {
   }
 
   .component-breakdown,
-  .summary-cards {
+  .summary-cards,
+  .methodology-intro,
+  .weights-list {
     grid-template-columns: 1fr;
   }
 

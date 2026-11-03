@@ -142,8 +142,12 @@ Frontend tests: cd frontend; npm run test
 - Risk weights are design choices, not a validated standard.
 - Detectors are fit on the clean train texts of the poisoned model; eval = test clean (label 0) +
   same test texts with trigger appended (label 1).s
+  - Toy classifier is binary CountVectorizer (fixed vocabulary) + MLP, not TF-IDF.
+- Detector consensus = mean fraction of detectors flagging each triggered sample (= mean recall).
 
 ## Known issues
-   - None.
+   - Fuzzing: case_perturbation and instruction_injection always show 0% flips on the toy model
+  (lowercase vectorizer; injected words outside vocabulary). Fuzzing fragility measures vocabulary
+  erosion, not general adversarial robustness. mutate() has no intensity parameter.
 ## Next
  Stage 8d: Live Run page (SSE) + Results page.

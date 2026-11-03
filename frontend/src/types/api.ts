@@ -239,6 +239,14 @@ export interface AuditLogList {
   offset: number;
 }
 
+export interface LimitationsResponse {
+  scope_statement: ScopeStatement;
+  risk_score_label: string;
+  weights: Record<string, number>;
+  weights_note: string;
+  limitations: string[];
+}
+
 export interface ProblemFieldError {
   field: string;
   message: string;
