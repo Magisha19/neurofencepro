@@ -13,8 +13,8 @@ from sqlalchemy.orm import sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import audit as audit_api
-from app.api import experiments as experiments_api
 from app.api import auth as auth_api
+from app.api import experiments as experiments_api
 from app.api import health
 from app.auth.passwords import hash_password
 from app.auth.ratelimit import LoginRateLimiter
@@ -22,6 +22,7 @@ from app.config import APP_VERSION, Settings, get_settings
 from app.db.models import Base
 from app.db.session import create_db_engine
 from app.schemas import ProblemDetail, ProblemFieldError
+from app.services.runner import ExperimentRunner, recover_interrupted
 
 API_PREFIX = "/api/v1"
 PROBLEM_JSON = "application/problem+json"
@@ -82,8 +83,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        yield
-        engine.dispose()
+        runner = _app.state.runner
+        if runner is not None:
+            for experiment_id in recover_interrupted(_app.state.session_factory):
+                runner.submit(experiment_id)
+        try:
+            yield
+        finally:
+            if runner is not None:
+                runner.shutdown(wait=True)
+            engine.dispose()
 
     is_prod = settings.env == "production"
     app = FastAPI(
@@ -101,6 +110,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.login_max_failures, settings.login_window_seconds
     )
     app.state.dummy_hash = hash_password("neurofence-dummy-password", settings.bcrypt_rounds)
+    app.state.runner = (
+        ExperimentRunner(
+            app.state.session_factory,
+            workers=settings.runner_workers,
+            stub_delay=settings.stub_stage_delay_seconds,
+        )
+        if settings.runner_enabled
+        else None
+    )
 
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)
@@ -121,7 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_origins=settings.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
     )
 
     app.include_router(health.router, prefix=API_PREFIX)

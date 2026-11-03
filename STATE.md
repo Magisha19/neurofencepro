@@ -20,14 +20,19 @@
   tests (test_auth, test_isolation). Full suite: 125 passed.
   Real server check (port 8010): register (no password in response), login, GET /api/v1/audit
   (register + login.success rows), unauthenticated request -> 401 + WWW-Authenticate: Bearer.
-  - Stage 5: api/experiments.py (create, list, get, cancel, rerun, delete), tests/test_experiments.py.
+- Stage 5: api/experiments.py (create, list, get, cancel, rerun, delete), tests/test_experiments.py.
   Full suite: 138 passed. Real server check (port 8010): create -> cancel -> rerun -> list -> 401.
+- Stage 6a: services/runner.py (stub stages, cooperative cancel, restart recovery, thread pool),
+  SSE GET /experiments/{id}/events (replay + Last-Event-ID), tests/test_runner.py.
+  Full suite: 152 passed. Real server check (port 8011, isolated temp DB): create -> 16 live SSE
+  events -> completed at 100%; cancellation mid-run -> cancelled at 25%.
 
 ## Interfaces
 - create_app(settings=None) -> FastAPI;
-  app.state.{settings, engine, session_factory, login_limiter, dummy_hash}
+  app.state.{settings, engine, session_factory, login_limiter, dummy_hash, runner}
 - get_settings(), Settings (env prefix NEUROFENCE_), APP_VERSION="0.1.0"
 - Settings.bcrypt_rounds (default 12, tests use 4)
+- Settings.runner_enabled / runner_workers / stub_stage_delay_seconds
 - db.session: create_db_engine(url), get_db(request) dependency
 - db.models: Base, User, Experiment, ExperimentEvent, Metric, BehaviourResult, FuzzingResult,
   RiskScoreRecord, Report, AuditLog (all except users have user_id)
@@ -39,13 +44,16 @@
 - auth.deps: get_current_user (use on every protected route), client_ip(request)
 - services.audit: record_audit(db, action, user_id=, resource_type=, resource_id=, detail=, ip=)
   (action allow-list in ACTIONS; secrets and non-scalar detail values rejected)
--- Routes: POST /api/v1/auth/register, POST /api/v1/auth/login, GET /api/v1/audit,
+- Routes: POST /api/v1/auth/register, POST /api/v1/auth/login, GET /api/v1/audit,
   POST|GET /api/v1/experiments, GET|DELETE /api/v1/experiments/{id},
-  POST /api/v1/experiments/{id}/cancel, POST /api/v1/experiments/{id}/rerun
+  POST /api/v1/experiments/{id}/cancel, POST /api/v1/experiments/{id}/rerun,
+  GET /api/v1/experiments/{id}/events (SSE)
+- services.runner: run_experiment, recover_interrupted, ExperimentRunner, STAGE_FUNCS, PIPELINE
 - tests/conftest.py fixtures: settings, app, client (temp SQLite per test)
 
 ## Working commands (D:\neurofencepro\backend, venv active)
-- Tests: `python -m pytest -q`  -> 125 passed
+- Tests: `python -m pytest -q`  -> 152 passed
+- Unused imports: `python -m ruff check --select F401 app tests` -> all checks passed
 - Server: `python -m uvicorn app.main:create_app --factory --port 8010`
   (port 8000 gave WinError 10013 on this machine; use 8010)
 - Health: `curl.exe http://127.0.0.1:8010/api/v1/health`
@@ -59,8 +67,8 @@
   per-endpoint APIRoute entries. test_every_protected_route_requires_a_token reads paths from
   app.openapi()["paths"] instead. Routes with include_in_schema=False are NOT covered: do not
   use that flag on protected endpoints, or test them separately.
-- When new routers land (experiments, reports), raise the `checked >= 1` guard in that test
-  to the expected route count.
+- test_every_protected_route_requires_a_token now requires >= 8 operations; raise the number as
+  protected routes are added.
 - Dev DB contains demo_user (id 1) from the real-server demo; registering it again gives 409.
   Delete data/neurofence.db to reset.
 - Failed login for an unknown username is audited with user_id NULL and the username is not
@@ -70,16 +78,20 @@
      as UTC and serialized with a "Z" suffix. Use UtcDateTime for every new *_at field.
      - Experiments of other users return 404 (not 403) on every endpoint, same message as a missing id.
 - Cancel allowed from queued/running; rerun from completed/failed/cancelled (else 409).
-  Cancel currently only flips the status. When the pipeline runner exists (Stage 6), a running
-  worker must check for cancellation between stages.
+- Runner: in-process thread pool. Tests set runner_enabled=False in conftest and call
+  run_experiment() directly (no background threads or stage sleeps). Real stages replace
+  STAGE_FUNCS entries.
+- Runner status writes are conditional on status == 'running', so cancel/delete are not overwritten.
+- completed currently means the stub stages ran; no metrics or risk results exist yet (Stages 6b-6d).
+- SSE polls the database every 0.5 seconds; use Last-Event-ID to resume a stream.
 - Delete removes child rows explicitly (events, metrics, behaviour, fuzzing, risk, reports) so it
   does not depend on SQLite's foreign-key pragma. Audit rows outlive the deleted experiment.
-- test_every_protected_route_requires_a_token now requires >= 7 operations; raise the number as
-  routers are added.
+- test_every_protected_route_requires_a_token now requires >= 8 operations; raise the number as
+  protected routes are added.
 - Dev DB has demo_user plus 2 demo experiments (queued/cancelled) from the Stage 5 demo.
 
 ## Known issues
    - None.
 ## Next
-- Decide Stage 6 scope: pipeline runner (background execution, events, progress, cooperative cancel).
-- Still assumed: SSE via fetch stream + Authorization header (no token in query string).t.
+- Stage 6b: implement dataset, clean training, and backdoor planting stages after agreeing on
+  the toy dataset/model/trigger design.

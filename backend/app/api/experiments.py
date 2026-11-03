@@ -1,10 +1,13 @@
 """Experiments CRUD. user_id always comes from the token; other users' rows look like 404."""
 from __future__ import annotations
 
+import time
+from collections.abc import Iterator
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import delete, func, select
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.deps import client_ip, get_current_user
@@ -27,6 +30,9 @@ from app.schemas import (
     ExperimentStatus,
     Provenance,
     Stage,
+)
+from app.schemas import (
+    ExperimentEvent as ExperimentEventOut,
 )
 from app.services.audit import record_audit
 
@@ -79,6 +85,12 @@ def _get_owned(db: Session, user: User, experiment_id: int) -> Experiment:
     return exp
 
 
+def _submit(request: Request, experiment_id: int) -> None:
+    runner = getattr(request.app.state, "runner", None)
+    if runner is not None:
+        runner.submit(experiment_id)
+
+
 @router.post("", response_model=ExperimentOut, status_code=201)
 def create_experiment(
     body: ExperimentCreate,
@@ -93,6 +105,7 @@ def create_experiment(
         db, "experiment.create", user_id=user.id, resource_type="experiment",
         resource_id=exp.id, detail={"config_hash": exp.config_hash}, ip=client_ip(request),
     )
+    _submit(request, exp.id)
     return to_out(exp)
 
 
@@ -134,11 +147,19 @@ def cancel_experiment(
     db: Session = Depends(get_db),
 ) -> ExperimentOut:
     exp = _get_owned(db, user, experiment_id)
-    if exp.status not in _CANCELLABLE:
-        raise HTTPException(status_code=409, detail=f"Cannot cancel an experiment that is {exp.status}")
-    exp.status = ExperimentStatus.CANCELLED.value
-    exp.finished_at = datetime.now(UTC)
+    result = db.execute(
+        update(Experiment)
+        .where(Experiment.id == exp.id, Experiment.status.in_(_CANCELLABLE))
+        .values(status=ExperimentStatus.CANCELLED.value, finished_at=datetime.now(UTC))
+        .execution_options(synchronize_session=False)
+    )
     db.commit()
+    db.refresh(exp)
+    if result.rowcount != 1:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot cancel an experiment that is {exp.status}",
+        )
     record_audit(
         db, "experiment.cancel", user_id=user.id, resource_type="experiment",
         resource_id=exp.id, ip=client_ip(request),
@@ -163,6 +184,7 @@ def rerun_experiment(
         db, "experiment.rerun", user_id=user.id, resource_type="experiment",
         resource_id=new.id, detail={"rerun_of": old.id}, ip=client_ip(request),
     )
+    _submit(request, new.id)
     return to_out(new)
 
 
@@ -183,3 +205,69 @@ def delete_experiment(
         resource_id=experiment_id, ip=client_ip(request),
     )
     return Response(status_code=204)
+
+
+_TERMINAL = {
+    ExperimentStatus.COMPLETED.value,
+    ExperimentStatus.FAILED.value,
+    ExperimentStatus.CANCELLED.value,
+}
+_SSE_POLL_SECONDS = 0.5
+_SSE_KEEPALIVE_SECONDS = 15.0
+_SSE_MAX_SECONDS = 3600.0
+
+
+def _sse_stream(session_factory, experiment_id: int, after_seq: int) -> Iterator[str]:
+    started = last_sent = time.monotonic()
+    while time.monotonic() - started < _SSE_MAX_SECONDS:
+        with session_factory() as db:
+            status = db.scalar(select(Experiment.status).where(Experiment.id == experiment_id))
+            rows = db.scalars(
+                select(ExperimentEvent)
+                .where(
+                    ExperimentEvent.experiment_id == experiment_id,
+                    ExperimentEvent.seq > after_seq,
+                )
+                .order_by(ExperimentEvent.seq)
+            ).all()
+        for row in rows:
+            event = ExperimentEventOut(
+                id=row.id,
+                experiment_id=row.experiment_id,
+                seq=row.seq,
+                stage=Stage(row.stage),
+                level=row.level,
+                message=row.message,
+                progress=row.progress,
+                created_at=row.created_at,
+            )
+            yield (
+                f"id: {row.seq}\nevent: experiment_event\n"
+                f"data: {event.model_dump_json()}\n\n"
+            )
+            after_seq = row.seq
+            last_sent = time.monotonic()
+        if status is None or status in _TERMINAL:
+            return
+        if time.monotonic() - last_sent >= _SSE_KEEPALIVE_SECONDS:
+            yield ": keepalive\n\n"
+            last_sent = time.monotonic()
+        time.sleep(_SSE_POLL_SECONDS)
+
+
+@router.get("/{experiment_id}/events")
+def stream_events(
+    experiment_id: int,
+    request: Request,
+    last_event_id: str | None = Header(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    _get_owned(db, user, experiment_id)
+    db.close()
+    after = int(last_event_id) if last_event_id and last_event_id.isdigit() else -1
+    return StreamingResponse(
+        _sse_stream(request.app.state.session_factory, experiment_id, after),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )

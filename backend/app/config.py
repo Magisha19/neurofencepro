@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     login_max_failures: int = Field(5, ge=1, le=50)
     login_window_seconds: int = Field(300, ge=10, le=3600)
+    runner_enabled: bool = True
+    runner_workers: int = Field(1, ge=1, le=4)
+    stub_stage_delay_seconds: float = Field(0.0, ge=0, le=5)  # dev only: slows the stub stages
 
     @model_validator(mode="after")
     def _production_needs_real_secret(self) -> "Settings":
